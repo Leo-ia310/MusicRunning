@@ -1,147 +1,218 @@
 package com.example.chillmusic.ui
 
-import android.content.ComponentName
-import android.content.Context
-import android.content.Intent
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import android.net.Uri
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.media3.common.MediaItem
-import androidx.media3.common.Player
-import androidx.media3.session.MediaController
-import androidx.media3.session.SessionToken
-import com.example.chillmusic.data.MotionRepository
-import com.example.chillmusic.data.MusicRepository
-import com.example.chillmusic.data.model.Song
-import com.example.chillmusic.service.MusicService
-import com.google.common.util.concurrent.ListenableFuture
-import com.google.common.util.concurrent.MoreExecutors
+import com.example.chillmusic.ChillMusicApplication
+import com.example.chillmusic.data.model.AppSettings
+import com.example.chillmusic.data.repository.MusicRepository
+import com.example.chillmusic.data.repository.SettingsRepository
+import com.example.chillmusic.logic.audio.AudioPlayerManager
+import com.example.chillmusic.logic.sensor.MotionDetector
+import com.example.chillmusic.data.model.MotionSettings
+import com.example.chillmusic.data.model.MotionState
+import com.example.chillmusic.data.model.PlayerState
+import com.example.chillmusic.data.model.StopBehavior
+import com.example.chillmusic.data.model.Track
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.launchIn
-import kotlinx.coroutines.flow.onEach
-import kotlinx.coroutines.guava.await
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 data class UiState(
+    val player: PlayerState = PlayerState(),
+    val motionState: MotionState = MotionState.STOPPED,
     val currentSpeed: Float = 0f,
-    val isRunningModeEnabled: Boolean = false,
-    val isPlaying: Boolean = false,
-    val currentSong: Song? = null,
-    val appMusic: List<Song> = emptyList(),
-    val userMusic: List<Song> = emptyList(),
-    val isPermissionGranted: Boolean = false
+    val settings: AppSettings = AppSettings(),
+    val catalog: List<Track> = emptyList(),
+    val userTracks: List<Track> = emptyList(),
+    val activeTab: String = "home",
+    val permissionsGranted: PermissionsState = PermissionsState()
 )
 
-class MainViewModel(
-    private val context: Context, // In a real app, use DI.
-    private val musicRepository: MusicRepository,
-    private val motionRepository: MotionRepository
-) : ViewModel() {
+data class LocalUiState(
+    val catalog: List<Track> = emptyList(),
+    val userTracks: List<Track> = emptyList(),
+    val activeTab: String = "home",
+    val permissionsGranted: PermissionsState = PermissionsState()
+)
 
-    private val _uiState = MutableStateFlow(UiState())
-    val uiState: StateFlow<UiState> = _uiState.asStateFlow()
+data class PermissionsState(
+    val motion: Boolean = false,
+    val location: Boolean = false
+)
 
-    private var mediaControllerFuture: ListenableFuture<MediaController>? = null
-    private var mediaController: MediaController? = null
+class MainViewModel(application: Application) : AndroidViewModel(application) {
+
+    private val app = application as ChillMusicApplication
+    private val musicRepo: MusicRepository = app.musicRepository
+    private val settingsRepo: SettingsRepository = app.settingsRepository
+    private val audioManager: AudioPlayerManager = app.audioPlayerManager
+    private val motionDetector: MotionDetector = app.motionDetector
+
+    private val _localUiState = MutableStateFlow(LocalUiState())
+
+    // Combined UI State
+    val uiState: StateFlow<UiState> = combine(
+        audioManager.playerState,
+        motionDetector.motionState,
+        motionDetector.currentSpeed,
+        settingsRepo.settings,
+        _localUiState
+    ) { player, motion, speed, settings, local ->
+        UiState(
+            player = player,
+            motionState = motion,
+            currentSpeed = speed,
+            settings = settings,
+            catalog = local.catalog,
+            userTracks = local.userTracks,
+            activeTab = local.activeTab,
+            permissionsGranted = local.permissionsGranted
+        )
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, UiState())
+
+    // internal tracking for smart playback
+    private var previousMotionState = MotionState.STOPPED
+    private var storedVolume = 0.8f
 
     init {
-        loadMusic()
-        initializeController()
+        loadTracks()
         observeMotion()
     }
 
-    private fun initializeController() {
-        val sessionToken = SessionToken(context, ComponentName(context, MusicService::class.java))
-        mediaControllerFuture = MediaController.Builder(context, sessionToken).buildAsync()
-        mediaControllerFuture?.addListener({
-            mediaController = mediaControllerFuture?.get()
-            mediaController?.addListener(object : Player.Listener {
-                override fun onIsPlayingChanged(isPlaying: Boolean) {
-                    _uiState.value = _uiState.value.copy(isPlaying = isPlaying)
-                }
-                
-                override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                    // Update current song from mediaItem
-                     super.onMediaItemTransition(mediaItem, reason)
-                     // In a real app we'd map mediaItem back to Song
-                }
-            })
-        }, MoreExecutors.directExecutor())
-    }
-
-    private fun loadMusic() {
+    private fun loadTracks() {
         viewModelScope.launch {
-            val app = musicRepository.getAppMusic()
-            val user = musicRepository.getUserMusic()
-            _uiState.value = _uiState.value.copy(appMusic = app, userMusic = user)
+            val userTracks = musicRepo.getUserTracks()
+            val catalog = musicRepo.catalog
+            _localUiState.value = _localUiState.value.copy(
+                catalog = catalog,
+                userTracks = userTracks
+            )
+            // Initial playlist
+            audioManager.setPlaylist(catalog + userTracks)
         }
     }
 
     private fun observeMotion() {
-        // Only observe if permission is granted, handled by UI calling this or re-calling
-        // For simplicity, we assume permission might be granted later.
-    }
-    
-    fun startLocationUpdates() {
-         motionRepository.getLocationFlow()
-            .onEach { location ->
-                val speed = motionRepository.getSpeedKmh(location)
-                _uiState.value = _uiState.value.copy(currentSpeed = speed)
+        viewModelScope.launch {
+            uiState.collect { state ->
+                val motionEnabled = state.settings.motion.enabled
+                val currentMotion = state.motionState
+
+                if (motionEnabled) {
+                    handleSmartPlayback(currentMotion, previousMotionState, state)
+                }
+                
+                previousMotionState = currentMotion
             }
-            .launchIn(viewModelScope)
-    }
-
-    fun toggleRunningMode() {
-        val newMode = !_uiState.value.isRunningModeEnabled
-        _uiState.value = _uiState.value.copy(isRunningModeEnabled = newMode)
-        
-        val intent = Intent(context, MusicService::class.java).apply {
-            action = if (newMode) MusicService.ACTION_START_RUNNING_MODE else MusicService.ACTION_STOP_RUNNING_MODE
         }
-        context.startService(intent)
     }
 
-    fun playSong(song: Song) {
-        val item = MediaItem.fromUri(song.uri)
-        mediaController?.setMediaItem(item)
-        mediaController?.prepare()
-        mediaController?.play()
-        _uiState.value = _uiState.value.copy(currentSong = song)
+    private fun handleSmartPlayback(current: MotionState, previous: MotionState, state: UiState) {
+        if (current == previous) return
+
+        val isMoving = current == MotionState.WALKING || current == MotionState.RUNNING
+        val wasMoving = previous == MotionState.WALKING || previous == MotionState.RUNNING
+
+        if (isMoving && !wasMoving) {
+            // Started moving
+            if (storedVolume > 0) {
+                audioManager.setVolume(storedVolume)
+            }
+            if (!state.player.isPlaying && state.player.currentTrack != null) {
+                audioManager.play()
+            }
+        } else if (!isMoving && wasMoving) {
+            // Stopped moving
+            when (state.settings.motion.stopBehavior) {
+                StopBehavior.PAUSE -> {
+                    audioManager.pause()
+                }
+                StopBehavior.LOWER_VOLUME -> {
+                    storedVolume = state.player.volume
+                    audioManager.setVolume(storedVolume * 0.3f)
+                }
+                StopBehavior.NEXT_TRACK -> {
+                    audioManager.next()
+                    audioManager.pause()
+                }
+            }
+        }
     }
-    
+
+    // --- Actions ---
+
     fun togglePlayPause() {
-        if (mediaController?.isPlaying == true) {
-            mediaController?.pause()
-        } else {
-            mediaController?.play()
-        }
-    }
-    
-    fun skipNext() {
-        mediaController?.seekToNext()
-    }
-    
-    fun skipPrevious() {
-        mediaController?.seekToPrevious()
+        if (uiState.value.player.isPlaying) audioManager.pause() else audioManager.play()
     }
 
-    override fun onCleared() {
-        mediaControllerFuture?.let { MediaController.releaseFuture(it) }
-        super.onCleared()
+    fun nextTrack() = audioManager.next()
+    fun prevTrack() = audioManager.previous()
+    fun setVolume(v: Float) = audioManager.setVolume(v)
+
+    fun playTrack(track: Track) {
+        audioManager.playTrack(track)
+    }
+
+    fun updateMotionSettings(newSettings: MotionSettings) {
+        settingsRepo.updateMotionSettings(newSettings)
+        motionDetector.updateSettings(newSettings)
     }
     
-    // Factory for manual DI
-    companion object {
-        fun provideFactory(
-            context: Context,
-            musicRepository: MusicRepository,
-            motionRepository: MotionRepository
-        ): androidx.lifecycle.ViewModelProvider.Factory = object : androidx.lifecycle.ViewModelProvider.Factory {
-            @Suppress("UNCHECKED_CAST")
-            override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                return MainViewModel(context, musicRepository, motionRepository) as T
+    fun updateLanguage(lang: String) {
+        settingsRepo.updateLanguage(lang)
+    }
+
+    fun toggleMotionDetection(enable: Boolean) {
+        val currentSettings = uiState.value.settings.motion
+        // Avoid loop if setting is same
+        if (currentSettings.enabled == enable) return
+        
+        updateMotionSettings(currentSettings.copy(enabled = enable))
+        
+        if (enable) {
+            motionDetector.startDetection()
+        } else {
+            motionDetector.stopDetection()
+        }
+    }
+
+    fun onTabSelected(index: Int) {
+        val tab = when(index) {
+            0 -> "home"
+            1 -> "library"
+            else -> "settings"
+        }
+        _localUiState.value = _localUiState.value.copy(activeTab = tab)
+    }
+
+    fun updatePermissionsStatus(motion: Boolean, location: Boolean) {
+        _localUiState.value = _localUiState.value.copy(
+            permissionsGranted = PermissionsState(motion, location)
+        )
+        // If granted and enabled, ensure detector is running
+        if (motion && location && uiState.value.settings.motion.enabled) {
+            motionDetector.startDetection()
+        }
+    }
+
+    fun addUserTrack(uri: Uri) {
+        viewModelScope.launch {
+            val newTrack = musicRepo.addUserTrack(uri)
+            if (newTrack != null) {
+                loadTracks() // reload list
             }
+        }
+    }
+
+    fun removeUserTrack(track: Track) {
+        viewModelScope.launch {
+            musicRepo.removeUserTrack(track)
+            loadTracks()
         }
     }
 }

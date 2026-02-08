@@ -2,13 +2,22 @@ package com.example.chillmusic.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-val RedPrimary = Color(0xFFFF0000)
-val Black = Color(0xFF000000)
-val White = Color(0xFFFFFFFF)
-val DarkGray = Color(0xFF1E1E1E)
-val LightGray = Color(0xFFCCCCCC)
-val RedDark = Color(0xFFB00000)
+val NetflixRed = Color(0xFFE50914)
+val NetflixRedHover = Color(0xFFFF1A1A)
+val NetflixBlack = Color(0xFF000000)
+val DarkGray = Color(0xFF111111)
+val ButtonGray = Color(0xFF1A1A1A)
+val BorderGray = Color(0xFF2A2A2A)
 
-val Purple80 = Color(0xFFD0BCFF)
-val PurpleGrey80 = Color(0xFFCCC2DC)
-val Pink80 = Color(0xFFEFB8C8)
+// Text Colors
+val White = Color(0xFFFFFFFF)
+val GrayText = Color(0xFF999999)
+val MutedText = Color(0xFF666666)
+val DisabledText = Color(0xFF333333)
+
+// Status Colors
+val StatusStopped = Color(0xFF666666)
+val StatusWalking = Color(0xFFFFB800)
+val StatusRunning = Color(0xFFE50914)
+
+val NavBackground = Color(0xFF0A0A0A) // with alpha 95% in usage

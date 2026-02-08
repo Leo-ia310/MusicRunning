@@ -1,27 +1,38 @@
 package com.example.chillmusic
 
 import android.app.Application
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.content.Context
-import android.os.Build
+import com.example.chillmusic.data.repository.MusicRepository
+import com.example.chillmusic.data.repository.SettingsRepository
+import com.example.chillmusic.logic.audio.AudioPlayerManager
+import com.example.chillmusic.logic.sensor.MotionDetector
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel 
 
 class ChillMusicApplication : Application() {
+
+    // Manual Dependency Injection container
+    private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    
+    lateinit var musicRepository: MusicRepository
+    lateinit var settingsRepository: SettingsRepository
+    lateinit var audioPlayerManager: AudioPlayerManager
+    lateinit var motionDetector: MotionDetector
+
     override fun onCreate() {
         super.onCreate()
-        createNotificationChannel()
+        
+        musicRepository = MusicRepository(this)
+        settingsRepository = SettingsRepository(this)
+        
+        // These managers need scope for coroutines
+        audioPlayerManager = AudioPlayerManager(this, applicationScope)
+        motionDetector = MotionDetector(this, applicationScope)
     }
 
-    private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channelId = "music_channel"
-            val channelName = "Music Playback"
-            val importance = NotificationManager.IMPORTANCE_LOW
-            val channel = NotificationChannel(channelId, channelName, importance)
-            channel.description = "Controls for music playback"
-            
-            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            notificationManager.createNotificationChannel(channel)
-        }
+    override fun onTerminate() {
+        super.onTerminate()
+        applicationScope.cancel()
     }
 }
