@@ -80,6 +80,9 @@ dependencies {
     // Accompanist (Permissions) - simplifies permission handling in Compose
     implementation("com.google.accompanist:accompanist-permissions:0.34.0")
 
+    // Guava (Required for ListenableFuture in Media3/Concurrent)
+    implementation("com.google.guava:guava:31.1-android")
+
     // Hilt / Dagger (Manual DI for now as per plan, but keeping scope open)
     // Using Manual DI for simplicity as requested, no Hilt dependencies added yet.
 
