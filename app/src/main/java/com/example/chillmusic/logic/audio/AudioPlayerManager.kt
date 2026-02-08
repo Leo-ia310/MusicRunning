@@ -6,8 +6,8 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import com.example.chillmusic.data.model.PlayerState
-
-class AudioPlayerManager(private val context: Context, private val scope: CoroutineScope) {
+import com.example.chillmusic.data.model.Track
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
