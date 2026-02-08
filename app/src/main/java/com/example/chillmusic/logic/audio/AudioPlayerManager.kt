@@ -5,8 +5,9 @@ import android.net.Uri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
-import com.example.chillmusic.data.model.Track
-import kotlinx.coroutines.CoroutineScope
+import com.example.chillmusic.data.model.PlayerState
+
+class AudioPlayerManager(private val context: Context, private val scope: CoroutineScope) {
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -227,10 +228,5 @@ class AudioPlayerManager(private val context: Context, private val scope: Corout
     }
 }
 
-data class PlayerState(
-    val currentTrack: Track? = null,
-    val isPlaying: Boolean = false,
-    val volume: Float = 1.0f,
-    val progress: Long = 0L,
-    val duration: Long = 0L
-)
+
+
