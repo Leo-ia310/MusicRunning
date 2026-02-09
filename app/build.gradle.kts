@@ -8,7 +8,7 @@ android {
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.example.chillmusic"
+        applicationId = "com.maykel.chillrun"
         minSdk = 26 // Android 8.0 (Oreo) for Foreground Services & Notification Channels
         targetSdk = 34
         versionCode = 1
