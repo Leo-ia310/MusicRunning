@@ -76,6 +76,11 @@ class AudioPlayerManager(private val context: Context, private val scope: Corout
 
     fun setPlaylist(tracks: List<Track>, startIndex: Int = 0) {
         playlist = tracks
+        if (tracks.isEmpty()) {
+            currentTrackIndex = -1
+            exoPlayer?.stop()
+            return
+        }
         currentTrackIndex = startIndex.coerceIn(0, tracks.size - 1)
         playTrack(playlist[currentTrackIndex])
     }
