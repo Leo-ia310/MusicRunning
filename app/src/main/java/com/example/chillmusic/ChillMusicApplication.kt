@@ -1,6 +1,7 @@
 package com.example.chillmusic
 
 import android.app.Application
+import com.example.chillmusic.data.repository.FitnessRepository
 import com.example.chillmusic.data.repository.MusicRepository
 import com.example.chillmusic.data.repository.SettingsRepository
 import com.example.chillmusic.logic.audio.AudioPlayerManager
@@ -18,6 +19,7 @@ class ChillMusicApplication : Application() {
     
     lateinit var musicRepository: MusicRepository
     lateinit var settingsRepository: SettingsRepository
+    lateinit var fitnessRepository: FitnessRepository
     lateinit var audioPlayerManager: AudioPlayerManager
     lateinit var motionDetector: MotionDetector
     lateinit var syncEngine: SyncEngine
@@ -27,10 +29,11 @@ class ChillMusicApplication : Application() {
         
         musicRepository = MusicRepository(this)
         settingsRepository = SettingsRepository(this)
+        fitnessRepository = FitnessRepository(this)
         
         // These managers need scope for coroutines
         audioPlayerManager = AudioPlayerManager(this, applicationScope)
-        motionDetector = MotionDetector(this, applicationScope)
+        motionDetector = MotionDetector(this, applicationScope, fitnessRepository)
         syncEngine = SyncEngine(applicationScope, audioPlayerManager, motionDetector, settingsRepository)
     }
 

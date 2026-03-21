@@ -15,7 +15,7 @@ import com.example.chillmusic.ui.theme.StatusStopped
 import java.util.Locale
 
 @Composable
-fun Speedometer(speedMs: Float) {
+fun Speedometer(speedMs: Float, steps: Int = 0) {
     val speedKmh = speedMs * 3.6f
     
     val color = when {
@@ -43,10 +43,11 @@ fun Speedometer(speedMs: Float) {
             letterSpacing = 2.sp
         )
         Text(
-            text = "SPEED",
-            fontSize = 10.sp,
+            text = "PASOS HOY: $steps",
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
             color = com.example.chillmusic.ui.theme.MutedText,
-            modifier = Modifier.padding(top = 4.dp)
+            modifier = Modifier.padding(top = 16.dp)
         )
     }
 }

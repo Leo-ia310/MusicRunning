@@ -54,6 +54,8 @@ class AudioPlayerManager(private val context: Context, private val scope: Corout
 
             exoPlayer = ExoPlayer.Builder(context)
                 .setAudioAttributes(audioAttributes, true)
+                .setHandleAudioBecomingNoisy(true)
+                .setWakeMode(C.WAKE_MODE_LOCAL)
                 .build().apply {
                 addListener(object : Player.Listener {
                     override fun onPlaybackStateChanged(playbackState: Int) {
@@ -130,6 +132,11 @@ class AudioPlayerManager(private val context: Context, private val scope: Corout
     fun setPlaybackSpeed(speed: Float) {
         val currentParams = exoPlayer?.playbackParameters ?: PlaybackParameters.DEFAULT
         exoPlayer?.playbackParameters = currentParams.withSpeed(speed.coerceIn(0.5f, 2.0f))
+        updateState()
+    }
+
+    fun seekTo(position: Long) {
+        exoPlayer?.seekTo(position)
         updateState()
     }
 

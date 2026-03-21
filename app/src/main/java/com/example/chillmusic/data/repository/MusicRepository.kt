@@ -17,16 +17,7 @@ class MusicRepository(private val context: Context) {
     private val gson = Gson()
     private val USER_TRACKS_FILE = "user_tracks.json"
 
-    val catalog: List<Track> = listOf(
-        Track("chill-001", "Midnight Runner", "Chill Beats Studio", "Night Run", 198000, "synth://chill-001", Track.Source.CATALOG, "CC0", null),
-        Track("chill-002", "Urban Flow", "Lo-Fi Motion", "City Jogger", 224000, "synth://chill-002", Track.Source.CATALOG, "CC0", null),
-        Track("chill-003", "Sunset Stride", "Ambient Pace", "Golden Hour", 186000, "synth://chill-003", Track.Source.CATALOG, "CC0", null),
-        Track("chill-004", "Neon Pulse", "Synthwave Runner", "Electric Miles", 210000, "synth://chill-004", Track.Source.CATALOG, "CC0", null),
-        Track("chill-005", "Morning Jog", "Nature Beats", "Dawn Patrol", 175000, "synth://chill-005", Track.Source.CATALOG, "CC0", null),
-        Track("chill-006", "Deep Breath", "Zen Runners", "Mindful Miles", 240000, "synth://chill-006", Track.Source.CATALOG, "CC0", null),
-        Track("chill-007", "Coastal Run", "Wave Tempo", "Ocean Pace", 192000, "synth://chill-007", Track.Source.CATALOG, "CC0", null),
-        Track("chill-008", "Electric Dreams", "Digital Stride", "Future Pace", 215000, "synth://chill-008", Track.Source.CATALOG, "CC0", null)
-    )
+    val catalog: List<Track> = emptyList()
 
     suspend fun getUserTracks(): List<Track> = withContext(Dispatchers.IO) {
         val file = File(context.filesDir, USER_TRACKS_FILE)
@@ -43,27 +34,24 @@ class MusicRepository(private val context: Context) {
     suspend fun addUserTrack(uri: Uri): Track? = withContext(Dispatchers.IO) {
         try {
             val contentResolver = context.contentResolver
+            try {
+                contentResolver.takePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            } catch (e: Exception) {
+                // Not all URIs support persistable permissions, ignore if it fails
+            }
+            
             val fileName = getFileName(uri) ?: "Unknown Track"
             val id = "user-${System.currentTimeMillis()}"
-            val internalFile = File(context.filesDir, "$id.mp3")
 
-            contentResolver.openInputStream(uri)?.use { input ->
-                FileOutputStream(internalFile).use { output ->
-                    input.copyTo(output)
-                }
-            }
-
-            // Estimate duration or get real duration (simplified for now, setting to 0 or needing extraction)
-            // Real implementation would use MediaMetadataRetriever
-            val duration = getDuration(internalFile)
+            val duration = getDurationFromUri(uri)
 
             val newTrack = Track(
                 id = id,
-                title = fileName.substringBeforeLast("."), // Simple title from filename
-                artist = "Unknown Artist", // Placeholder
+                title = fileName.substringBeforeLast("."), 
+                artist = "Local Device",
                 album = null,
                 duration = duration,
-                url = internalFile.absolutePath,
+                url = uri.toString(),
                 source = Track.Source.USER
             )
 
@@ -78,10 +66,6 @@ class MusicRepository(private val context: Context) {
     }
 
     suspend fun removeUserTrack(track: Track) = withContext(Dispatchers.IO) {
-        val file = File(track.url)
-        if (file.exists()) {
-            file.delete()
-        }
         val currentTracks = getUserTracks().toMutableList()
         currentTracks.removeAll { it.id == track.id }
         saveUserTracks(currentTracks)
@@ -115,10 +99,10 @@ class MusicRepository(private val context: Context) {
         return result
     }
 
-    private fun getDuration(file: File): Long {
+    private fun getDurationFromUri(uri: Uri): Long {
         return try {
             val retriever = android.media.MediaMetadataRetriever()
-            retriever.setDataSource(file.absolutePath)
+            retriever.setDataSource(context, uri)
             val time = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)
             retriever.release()
             time?.toLongOrNull() ?: 0L

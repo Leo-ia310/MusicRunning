@@ -64,7 +64,7 @@ fun HomeScreen(viewModel: MainViewModel) {
         Spacer(modifier = Modifier.height(24.dp))
 
         // Speedometer
-        Speedometer(speedMs = uiState.currentSpeed)
+        Speedometer(speedMs = uiState.currentSpeed, steps = uiState.todaySteps)
 
         // Motion Indicator
         MotionIndicator(
@@ -79,7 +79,8 @@ fun HomeScreen(viewModel: MainViewModel) {
             onPlayPause = viewModel::togglePlayPause,
             onNext = viewModel::nextTrack,
             onPrev = viewModel::prevTrack,
-            onVolumeChange = viewModel::setVolume
+            onVolumeChange = viewModel::setVolume,
+            onSeek = viewModel::seekTo
         )
     }
 }

@@ -8,6 +8,7 @@ import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.location.Location
 import android.os.Looper
+import com.example.chillmusic.data.repository.FitnessRepository
 import com.example.chillmusic.data.model.MotionSettings
 import com.example.chillmusic.data.model.MotionState
 import com.example.chillmusic.data.model.MotionState.*
@@ -26,7 +27,11 @@ import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.sqrt
 
-class MotionDetector(private val context: Context, private val scope: CoroutineScope) : SensorEventListener {
+class MotionDetector(
+    private val context: Context,
+    private val scope: CoroutineScope,
+    private val fitnessRepo: FitnessRepository
+) : SensorEventListener {
 
     private val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
     private val accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
@@ -125,6 +130,8 @@ class MotionDetector(private val context: Context, private val scope: CoroutineS
 
                 evaluateMotion()
             } else if (it.sensor.type == Sensor.TYPE_STEP_DETECTOR) {
+                fitnessRepo.addStep()
+                
                 val now = System.currentTimeMillis()
                 stepTimestamps.add(now)
                 // keep only last 5 seconds to calculate rolling cadence
@@ -162,14 +169,17 @@ class MotionDetector(private val context: Context, private val scope: CoroutineS
         val walkThreshold = motionSettings.walkingThreshold * factor
         val runThreshold = motionSettings.runningThreshold * factor
 
-        // Prefer GPS speed if available and significant, otherwise use acceleration
-        // Transforming acceleration to "speed equivalent" for classification is tricky physically,
-        // but specified logic uses 'speed' variable source switching.
-        // For acceleration, we treat the magnitude of motion as a proxy for speed.
-        
         // Discard GPS speed if it's older than 10 seconds (signal lost)
         val isGpsValid = (System.currentTimeMillis() - lastGeoSpeedTimestamp) < 10000
-        val effectiveSpeed = if (isGpsValid && lastGeoSpeed > 0.5f) lastGeoSpeed else lastAcceleration
+        
+        // Convert Cadence (steps/min) to approx m/s (assuming 0.8m per step)
+        val fakeSpeedFromCadence = (_stepCadence.value * 0.8f) / 60f
+        
+        val effectiveSpeed = if (isGpsValid && lastGeoSpeed > 0.5f) {
+            lastGeoSpeed 
+        } else {
+            fakeSpeedFromCadence
+        }
 
         val newState = when {
             effectiveSpeed >= runThreshold -> RUNNING

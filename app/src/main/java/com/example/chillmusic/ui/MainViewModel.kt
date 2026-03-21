@@ -31,7 +31,8 @@ data class UiState(
     val userTracks: List<Track> = emptyList(),
     val activeTab: String = "home",
     val permissionsGranted: PermissionsState = PermissionsState(),
-    val stepCadence: Int = 0
+    val stepCadence: Int = 0,
+    val todaySteps: Int = 0
 )
 
 data class LocalUiState(
@@ -54,23 +55,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val audioManager: AudioPlayerManager = app.audioPlayerManager
     private val motionDetector: MotionDetector = app.motionDetector
 
+    private val fitnessRepo = app.fitnessRepository
     private val _localUiState = MutableStateFlow(LocalUiState())
 
     // Combined UI State
     val uiState: StateFlow<UiState> = combine(
-        combine(audioManager.playerState, motionDetector.motionState, motionDetector.currentSpeed, ::Triple),
-        combine(motionDetector.stepCadence, settingsRepo.settings, _localUiState, ::Triple)
-    ) { first, second ->
+        audioManager.playerState,
+        motionDetector.motionState,
+        motionDetector.currentSpeed,
+        motionDetector.stepCadence,
+        combine(settingsRepo.settings, fitnessRepo.dailySteps, _localUiState, ::Triple)
+    ) { player, motion, speed, cadence, extra ->
         UiState(
-            player = first.first,
-            motionState = first.second,
-            currentSpeed = first.third,
-            stepCadence = second.first,
-            settings = second.second,
-            catalog = second.third.catalog,
-            userTracks = second.third.userTracks,
-            activeTab = second.third.activeTab,
-            permissionsGranted = second.third.permissionsGranted
+            player = player,
+            motionState = motion,
+            currentSpeed = speed,
+            stepCadence = cadence,
+            settings = extra.first,
+            todaySteps = extra.second,
+            catalog = extra.third.catalog,
+            userTracks = extra.third.userTracks,
+            activeTab = extra.third.activeTab,
+            permissionsGranted = extra.third.permissionsGranted
         )
     }.stateIn(viewModelScope, SharingStarted.Eagerly, UiState())
 
@@ -100,6 +106,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun nextTrack() = audioManager.next()
     fun prevTrack() = audioManager.previous()
     fun setVolume(v: Float) = audioManager.setVolume(v)
+    fun seekTo(position: Long) = audioManager.seekTo(position)
 
     fun playTrack(track: Track) {
         audioManager.playTrack(track)

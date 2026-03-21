@@ -48,7 +48,8 @@ fun PlayerControls(
     onPlayPause: () -> Unit,
     onNext: () -> Unit,
     onPrev: () -> Unit,
-    onVolumeChange: (Float) -> Unit
+    onVolumeChange: (Float) -> Unit,
+    onSeek: (Long) -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -96,7 +97,7 @@ fun PlayerControls(
         Column {
             Slider(
                 value = playerState.progress.toFloat(),
-                onValueChange = { /* Seek logic if needed */ },
+                onValueChange = { onSeek(it.toLong()) },
                 valueRange = 0f..playerState.duration.coerceAtLeast(1L).toFloat(),
                 colors = SliderDefaults.colors(
                     thumbColor = NetflixRed,
