@@ -5,6 +5,7 @@ import com.example.chillmusic.data.repository.MusicRepository
 import com.example.chillmusic.data.repository.SettingsRepository
 import com.example.chillmusic.logic.audio.AudioPlayerManager
 import com.example.chillmusic.logic.sensor.MotionDetector
+import com.example.chillmusic.logic.sync.SyncEngine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -19,6 +20,7 @@ class ChillMusicApplication : Application() {
     lateinit var settingsRepository: SettingsRepository
     lateinit var audioPlayerManager: AudioPlayerManager
     lateinit var motionDetector: MotionDetector
+    lateinit var syncEngine: SyncEngine
 
     override fun onCreate() {
         super.onCreate()
@@ -29,6 +31,7 @@ class ChillMusicApplication : Application() {
         // These managers need scope for coroutines
         audioPlayerManager = AudioPlayerManager(this, applicationScope)
         motionDetector = MotionDetector(this, applicationScope)
+        syncEngine = SyncEngine(applicationScope, audioPlayerManager, motionDetector, settingsRepository)
     }
 
     override fun onTerminate() {

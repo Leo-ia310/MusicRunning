@@ -30,6 +30,7 @@ class MotionDetector(private val context: Context, private val scope: CoroutineS
 
     private val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
     private val accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+    private val stepDetector = sensorManager.getDefaultSensor(Sensor.TYPE_STEP_DETECTOR)
     private val fusedLocationClient: FusedLocationProviderClient = LocationServices.getFusedLocationProviderClient(context)
 
     private val _motionState = MutableStateFlow(STOPPED)
@@ -37,12 +38,18 @@ class MotionDetector(private val context: Context, private val scope: CoroutineS
 
     private val _currentSpeed = MutableStateFlow(0f)
     val currentSpeed: StateFlow<Float> = _currentSpeed.asStateFlow()
+    
+    private val _stepCadence = MutableStateFlow(0)
+    val stepCadence: StateFlow<Int> = _stepCadence.asStateFlow()
+    
+    private val stepTimestamps = mutableListOf<Long>()
 
     private var motionSettings = MotionSettings()
     private var isDetecting = false
 
     private var lastAcceleration = 0f
     private var lastGeoSpeed = 0f
+    private var lastGeoSpeedTimestamp = 0L
 
     // Buffer for smoothing acceleration (simple moving average)
     private val accelBuffer = FloatArray(10)
@@ -61,12 +68,16 @@ class MotionDetector(private val context: Context, private val scope: CoroutineS
 
         // Accelerometer
         accelerometer?.let {
-            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI)
+            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL)
+        }
+        // Step detector
+        stepDetector?.let {
+            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL)
         }
 
-        // GPS
-        val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 2000)
-            .setMinUpdateIntervalMillis(1000)
+        // GPS - Optimized for battery (3s-5s)
+        val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 5000)
+            .setMinUpdateIntervalMillis(3000)
             .build()
 
         try {
@@ -90,8 +101,11 @@ class MotionDetector(private val context: Context, private val scope: CoroutineS
         // Reset state
         _motionState.value = STOPPED
         _currentSpeed.value = 0f
+        _stepCadence.value = 0
+        stepTimestamps.clear()
         lastAcceleration = 0f
         lastGeoSpeed = 0f
+        lastGeoSpeedTimestamp = 0L
     }
 
     override fun onSensorChanged(event: SensorEvent?) {
@@ -110,6 +124,19 @@ class MotionDetector(private val context: Context, private val scope: CoroutineS
                 lastAcceleration = accelBuffer.average().toFloat()
 
                 evaluateMotion()
+            } else if (it.sensor.type == Sensor.TYPE_STEP_DETECTOR) {
+                val now = System.currentTimeMillis()
+                stepTimestamps.add(now)
+                // keep only last 5 seconds to calculate rolling cadence
+                stepTimestamps.removeAll { t -> now - t > 5000 }
+                
+                if (stepTimestamps.size >= 2) {
+                    val durationMs = stepTimestamps.last() - stepTimestamps.first()
+                    if (durationMs > 0) {
+                        val cadence = ((stepTimestamps.size - 1) * 60000L / durationMs).toInt()
+                        scope.launch(Dispatchers.Main) { _stepCadence.value = cadence }
+                    }
+                }
             }
         }
     }
@@ -121,6 +148,7 @@ class MotionDetector(private val context: Context, private val scope: CoroutineS
             result.lastLocation?.let { location ->
                 if (location.hasSpeed()) {
                     lastGeoSpeed = location.speed
+                    lastGeoSpeedTimestamp = System.currentTimeMillis()
                     evaluateMotion()
                 }
             }
@@ -139,12 +167,19 @@ class MotionDetector(private val context: Context, private val scope: CoroutineS
         // but specified logic uses 'speed' variable source switching.
         // For acceleration, we treat the magnitude of motion as a proxy for speed.
         
-        val effectiveSpeed = if (lastGeoSpeed > 0.5f) lastGeoSpeed else lastAcceleration
+        // Discard GPS speed if it's older than 10 seconds (signal lost)
+        val isGpsValid = (System.currentTimeMillis() - lastGeoSpeedTimestamp) < 10000
+        val effectiveSpeed = if (isGpsValid && lastGeoSpeed > 0.5f) lastGeoSpeed else lastAcceleration
 
         val newState = when {
             effectiveSpeed >= runThreshold -> RUNNING
             effectiveSpeed >= walkThreshold -> WALKING
             else -> STOPPED
+        }
+
+        if (newState == STOPPED && _motionState.value != STOPPED) {
+            stepTimestamps.clear()
+            scope.launch(Dispatchers.Main) { _stepCadence.value = 0 }
         }
 
         scope.launch(Dispatchers.Main) {

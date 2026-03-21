@@ -23,6 +23,7 @@ fun MainScreen(viewModel: MainViewModel) {
         bottomBar = {
             BottomNavigationBar(
                 currentTab = uiState.activeTab,
+                language = uiState.settings.language,
                 onTabSelected = { index ->
                     viewModel.onTabSelected(index)
                     when (index) {

@@ -26,7 +26,10 @@ class MusicService : MediaSessionService() {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         val player = mediaSession?.player
-        if (player?.playWhenReady == false || player?.mediaItemCount == 0) {
+        val app = application as ChillMusicApplication
+        val motionEnabled = app.settingsRepository.settings.value.motion.enabled
+
+        if (!motionEnabled && (player?.playWhenReady == false || player?.mediaItemCount == 0)) {
             stopSelf()
         }
     }

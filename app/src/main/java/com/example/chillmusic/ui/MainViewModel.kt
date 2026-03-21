@@ -30,7 +30,8 @@ data class UiState(
     val catalog: List<Track> = emptyList(),
     val userTracks: List<Track> = emptyList(),
     val activeTab: String = "home",
-    val permissionsGranted: PermissionsState = PermissionsState()
+    val permissionsGranted: PermissionsState = PermissionsState(),
+    val stepCadence: Int = 0
 )
 
 data class LocalUiState(
@@ -57,31 +58,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // Combined UI State
     val uiState: StateFlow<UiState> = combine(
-        audioManager.playerState,
-        motionDetector.motionState,
-        motionDetector.currentSpeed,
-        settingsRepo.settings,
-        _localUiState
-    ) { player, motion, speed, settings, local ->
+        combine(audioManager.playerState, motionDetector.motionState, motionDetector.currentSpeed, ::Triple),
+        combine(motionDetector.stepCadence, settingsRepo.settings, _localUiState, ::Triple)
+    ) { first, second ->
         UiState(
-            player = player,
-            motionState = motion,
-            currentSpeed = speed,
-            settings = settings,
-            catalog = local.catalog,
-            userTracks = local.userTracks,
-            activeTab = local.activeTab,
-            permissionsGranted = local.permissionsGranted
+            player = first.first,
+            motionState = first.second,
+            currentSpeed = first.third,
+            stepCadence = second.first,
+            settings = second.second,
+            catalog = second.third.catalog,
+            userTracks = second.third.userTracks,
+            activeTab = second.third.activeTab,
+            permissionsGranted = second.third.permissionsGranted
         )
     }.stateIn(viewModelScope, SharingStarted.Eagerly, UiState())
 
-    // internal tracking for smart playback
-    private var previousMotionState = MotionState.STOPPED
-    private var storedVolume = 0.8f
-
     init {
         loadTracks()
-        observeMotion()
     }
 
     private fun loadTracks() {
@@ -94,53 +88,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
             // Initial playlist
             audioManager.setPlaylist(catalog + userTracks)
-        }
-    }
-
-    private fun observeMotion() {
-        viewModelScope.launch {
-            uiState.collect { state ->
-                val motionEnabled = state.settings.motion.enabled
-                val currentMotion = state.motionState
-
-                if (motionEnabled) {
-                    handleSmartPlayback(currentMotion, previousMotionState, state)
-                }
-                
-                previousMotionState = currentMotion
-            }
-        }
-    }
-
-    private fun handleSmartPlayback(current: MotionState, previous: MotionState, state: UiState) {
-        if (current == previous) return
-
-        val isMoving = current == MotionState.WALKING || current == MotionState.RUNNING
-        val wasMoving = previous == MotionState.WALKING || previous == MotionState.RUNNING
-
-        if (isMoving && !wasMoving) {
-            // Started moving
-            if (storedVolume > 0) {
-                audioManager.setVolume(storedVolume)
-            }
-            if (!state.player.isPlaying && state.player.currentTrack != null) {
-                audioManager.play()
-            }
-        } else if (!isMoving && wasMoving) {
-            // Stopped moving
-            when (state.settings.motion.stopBehavior) {
-                StopBehavior.PAUSE -> {
-                    audioManager.pause()
-                }
-                StopBehavior.LOWER_VOLUME -> {
-                    storedVolume = state.player.volume
-                    audioManager.setVolume(storedVolume * 0.3f)
-                }
-                StopBehavior.NEXT_TRACK -> {
-                    audioManager.next()
-                    audioManager.pause()
-                }
-            }
         }
     }
 
@@ -205,6 +152,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val newTrack = musicRepo.addUserTrack(uri)
             if (newTrack != null) {
                 loadTracks() // reload list
+            }
+        }
+    }
+
+    fun addUserTracks(uris: List<Uri>) {
+        viewModelScope.launch {
+            var anyAdded = false
+            uris.forEach { uri ->
+                val newTrack = musicRepo.addUserTrack(uri)
+                if (newTrack != null) anyAdded = true
+            }
+            if (anyAdded) {
+                loadTracks() // reload list once after all added
             }
         }
     }

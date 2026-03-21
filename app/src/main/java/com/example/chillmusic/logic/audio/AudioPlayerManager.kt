@@ -2,7 +2,10 @@ package com.example.chillmusic.logic.audio
 
 import android.content.Context
 import android.net.Uri
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import com.example.chillmusic.data.model.PlayerState
@@ -44,7 +47,14 @@ class AudioPlayerManager(private val context: Context, private val scope: Corout
 
     private fun initPlayer() {
         if (exoPlayer == null) {
-            exoPlayer = ExoPlayer.Builder(context).build().apply {
+            val audioAttributes = AudioAttributes.Builder()
+                .setUsage(C.USAGE_MEDIA)
+                .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+                .build()
+
+            exoPlayer = ExoPlayer.Builder(context)
+                .setAudioAttributes(audioAttributes, true)
+                .build().apply {
                 addListener(object : Player.Listener {
                     override fun onPlaybackStateChanged(playbackState: Int) {
                         if (playbackState == Player.STATE_ENDED) {
@@ -117,6 +127,12 @@ class AudioPlayerManager(private val context: Context, private val scope: Corout
         updateState()
     }
 
+    fun setPlaybackSpeed(speed: Float) {
+        val currentParams = exoPlayer?.playbackParameters ?: PlaybackParameters.DEFAULT
+        exoPlayer?.playbackParameters = currentParams.withSpeed(speed.coerceIn(0.5f, 2.0f))
+        updateState()
+    }
+
     fun release() {
         exoPlayer?.release()
         exoPlayer = null
@@ -133,6 +149,7 @@ class AudioPlayerManager(private val context: Context, private val scope: Corout
             _playerState.value = _playerState.value.copy(
                 isPlaying = player.isPlaying,
                 volume = player.volume,
+                speed = player.playbackParameters.speed,
                 duration = player.duration.coerceAtLeast(0),
                 progress = player.currentPosition
             )

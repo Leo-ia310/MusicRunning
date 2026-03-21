@@ -17,7 +17,10 @@ data class MotionSettings(
     val sensitivity: Int = 5,
     val stopBehavior: StopBehavior = StopBehavior.PAUSE,
     val walkingThreshold: Float = 1.5f,
-    val runningThreshold: Float = 4.0f
+    val runningThreshold: Float = 4.0f,
+    val autoPlayEnabled: Boolean = true,
+    val syncSpeedEnabled: Boolean = false,
+    val syncIntensity: Float = 0.5f
 )
 
 data class AppSettings(

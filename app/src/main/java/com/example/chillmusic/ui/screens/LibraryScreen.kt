@@ -52,13 +52,18 @@ import com.example.chillmusic.ui.components.formatTime
 import com.example.chillmusic.ui.theme.ButtonGray
 import com.example.chillmusic.ui.theme.NetflixRed
 
+import com.example.chillmusic.ui.utils.Translation
+
 @Composable
 fun LibraryScreen(viewModel: MainViewModel) {
     val uiState by viewModel.uiState.collectAsState()
     var selectedTabIndex by remember { mutableIntStateOf(0) }
+    val lang = uiState.settings.language
     
-    val launcher = rememberLauncherForActivityResult(contract = ActivityResultContracts.OpenDocument()) { uri: Uri? ->
-        uri?.let { viewModel.addUserTrack(it) }
+    val launcher = rememberLauncherForActivityResult(contract = ActivityResultContracts.GetMultipleContents()) { uris: List<Uri> ->
+        if (uris.isNotEmpty()) {
+            viewModel.addUserTracks(uris)
+        }
     }
 
     Column(
@@ -70,7 +75,7 @@ fun LibraryScreen(viewModel: MainViewModel) {
         Spacer(modifier = Modifier.height(32.dp))
         
         Text(
-            text = "Library",
+            text = Translation.getString("library", lang),
             style = MaterialTheme.typography.titleLarge,
             color = Color.White,
             fontWeight = FontWeight.Bold
@@ -93,12 +98,12 @@ fun LibraryScreen(viewModel: MainViewModel) {
             Tab(
                 selected = selectedTabIndex == 0,
                 onClick = { selectedTabIndex = 0 },
-                text = { Text("Chill Music (${uiState.catalog.size})") }
+                text = { Text("${Translation.getString("chill_music", lang)} (${uiState.catalog.size})") }
             )
             Tab(
                 selected = selectedTabIndex == 1,
                 onClick = { selectedTabIndex = 1 },
-                text = { Text("Your Music (${uiState.userTracks.size})") }
+                text = { Text("${Translation.getString("your_music", lang)} (${uiState.userTracks.size})") }
             )
         }
 
@@ -106,13 +111,13 @@ fun LibraryScreen(viewModel: MainViewModel) {
 
         if (selectedTabIndex == 1) {
             Button(
-                onClick = { launcher.launch(arrayOf("audio/*")) },
+                onClick = { launcher.launch("audio/*") },
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.buttonColors(containerColor = ButtonGray)
             ) {
                 Icon(Icons.Filled.Add, null, tint = NetflixRed)
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Upload MP3 Files", color = Color.White)
+                Text(Translation.getString("upload_mp3", lang), color = Color.White)
             }
             Spacer(modifier = Modifier.height(16.dp))
         }
@@ -120,6 +125,7 @@ fun LibraryScreen(viewModel: MainViewModel) {
         val tracks = if (selectedTabIndex == 0) uiState.catalog else uiState.userTracks
 
         LazyColumn(
+            modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             items(tracks) { track ->
@@ -134,7 +140,7 @@ fun LibraryScreen(viewModel: MainViewModel) {
             if (tracks.isEmpty()) {
                 item {
                     Text(
-                        text = "No tracks found",
+                        text = Translation.getString("no_tracks", lang),
                         color = Color.Gray,
                         modifier = Modifier.padding(16.dp)
                     )

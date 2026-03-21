@@ -26,9 +26,12 @@ import com.example.chillmusic.ui.components.PlayerControls
 import com.example.chillmusic.ui.components.Speedometer
 import com.example.chillmusic.ui.theme.NetflixRed
 
+import com.example.chillmusic.ui.utils.Translation
+
 @Composable
 fun HomeScreen(viewModel: MainViewModel) {
     val uiState by viewModel.uiState.collectAsState()
+    val lang = uiState.settings.language
 
     Column(
         modifier = Modifier
@@ -43,9 +46,9 @@ fun HomeScreen(viewModel: MainViewModel) {
         // App Title
         Text(
             text = buildAnnotatedString {
-                append("Chill Music")
+                append(Translation.getString("chill_music", lang))
                 withStyle(SpanStyle(color = NetflixRed)) {
-                    append(" While Running")
+                    append(Translation.getString("while_running", lang))
                 }
             },
             color = Color.White,
@@ -53,7 +56,7 @@ fun HomeScreen(viewModel: MainViewModel) {
             fontWeight = FontWeight.Bold
         )
         Text(
-            text = "Move to the beat",
+            text = Translation.getString("move_to_beat", lang),
             color = Color.Gray,
             fontSize = 14.sp
         )

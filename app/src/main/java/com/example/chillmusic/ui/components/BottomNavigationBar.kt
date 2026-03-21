@@ -28,9 +28,12 @@ import androidx.compose.ui.unit.sp
 import com.example.chillmusic.ui.theme.NavBackground
 import com.example.chillmusic.ui.theme.NetflixRed
 
+import com.example.chillmusic.ui.utils.Translation
+
 @Composable
 fun BottomNavigationBar(
     currentTab: String,
+    language: String,
     onTabSelected: (Int) -> Unit
 ) {
     Row(
@@ -43,19 +46,19 @@ fun BottomNavigationBar(
     ) {
         NavItem(
             icon = Icons.Filled.Home,
-            label = "Home",
+            label = Translation.getString("home", language),
             isSelected = currentTab == "home",
             onClick = { onTabSelected(0) }
         )
         NavItem(
             icon = Icons.Filled.LibraryMusic,
-            label = "Library",
+            label = Translation.getString("library", language),
             isSelected = currentTab == "library",
             onClick = { onTabSelected(1) }
         )
         NavItem(
             icon = Icons.Filled.Settings,
-            label = "Settings",
+            label = Translation.getString("settings", language),
             isSelected = currentTab == "settings",
             onClick = { onTabSelected(2) }
         )
