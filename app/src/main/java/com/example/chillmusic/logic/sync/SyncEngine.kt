@@ -6,6 +6,7 @@ import com.example.chillmusic.data.model.StopBehavior
 import com.example.chillmusic.data.repository.SettingsRepository
 import com.example.chillmusic.logic.audio.AudioPlayerManager
 import com.example.chillmusic.logic.sensor.MotionDetector
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
