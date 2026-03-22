@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import com.example.chillmusic.data.model.PlayerState
 import com.example.chillmusic.ui.theme.ButtonGray
 import com.example.chillmusic.ui.theme.NetflixRed
+import com.example.chillmusic.ui.utils.Translation
 import java.util.Locale
 
 @Composable
@@ -49,7 +50,8 @@ fun PlayerControls(
     onNext: () -> Unit,
     onPrev: () -> Unit,
     onVolumeChange: (Float) -> Unit,
-    onSeek: (Long) -> Unit
+    onSeek: (Long) -> Unit,
+    language: String
 ) {
     Column(
         modifier = Modifier
@@ -78,13 +80,13 @@ fun PlayerControls(
             Spacer(modifier = Modifier.width(16.dp))
             Column {
                 Text(
-                    text = playerState.currentTrack?.title ?: "No track selected",
+                    text = playerState.currentTrack?.title ?: Translation.getString("no_track_selected", language),
                     style = MaterialTheme.typography.titleMedium,
                     color = Color.White,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = playerState.currentTrack?.artist ?: "Select a track to play",
+                    text = playerState.currentTrack?.artist ?: Translation.getString("select_track_to_play", language),
                     style = MaterialTheme.typography.bodySmall,
                     color = Color.Gray
                 )

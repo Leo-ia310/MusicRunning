@@ -64,13 +64,14 @@ fun HomeScreen(viewModel: MainViewModel) {
         Spacer(modifier = Modifier.height(24.dp))
 
         // Speedometer
-        Speedometer(speedMs = uiState.currentSpeed, steps = uiState.todaySteps)
+        Speedometer(speedMs = uiState.currentSpeed, steps = uiState.todaySteps, language = lang)
 
         // Motion Indicator
         MotionIndicator(
             motionState = uiState.motionState,
             enabled = uiState.settings.motion.enabled,
-            permissionsGranted = uiState.permissionsGranted.motion && uiState.permissionsGranted.location 
+            permissionsGranted = uiState.permissionsGranted.motion && uiState.permissionsGranted.location,
+            language = lang
         )
 
         // Player Section
@@ -80,7 +81,8 @@ fun HomeScreen(viewModel: MainViewModel) {
             onNext = viewModel::nextTrack,
             onPrev = viewModel::prevTrack,
             onVolumeChange = viewModel::setVolume,
-            onSeek = viewModel::seekTo
+            onSeek = viewModel::seekTo,
+            language = lang
         )
     }
 }

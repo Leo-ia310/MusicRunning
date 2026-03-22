@@ -34,7 +34,19 @@ object Translation {
         "your_music" to "Your Music",
         "auto_playback" to "Auto Playback",
         "speed_sync" to "Sync Music Speed with Cadence",
-        "sync_intensity" to "Sync Intensity"
+        "sync_intensity" to "Sync Intensity",
+        "kmh" to "KM/H",
+        "steps_today" to "STEPS TODAY: ",
+        "stopped" to "Stopped",
+        "walking" to "Walking",
+        "running" to "Running",
+        "start_moving_to_play" to "Start moving to play music",
+        "walking_pace_detected" to "Walking pace detected",
+        "running_pace_detected" to "Running pace detected",
+        "motion_detection_off" to "Motion Detection Off",
+        "enable_in_settings" to "Enable in Settings",
+        "no_track_selected" to "No track selected",
+        "select_track_to_play" to "Select a track to play"
     )
 
     private val es = mapOf(
@@ -70,7 +82,19 @@ object Translation {
         "your_music" to "Tu música",
         "auto_playback" to "Reproducción Automática",
         "speed_sync" to "Sincronizar velocidad con el ritmo",
-        "sync_intensity" to "Intensidad de Sincronización"
+        "sync_intensity" to "Intensidad de Sincronización",
+        "kmh" to "KM/H",
+        "steps_today" to "PASOS HOY: ",
+        "stopped" to "Detenido",
+        "walking" to "Caminando",
+        "running" to "Corriendo",
+        "start_moving_to_play" to "Empieza a moverte para reproducir música",
+        "walking_pace_detected" to "Ritmo de caminata detectado",
+        "running_pace_detected" to "Ritmo de carrera detectado",
+        "motion_detection_off" to "Detección de movimiento desactivada",
+        "enable_in_settings" to "Activar en Ajustes",
+        "no_track_selected" to "Ninguna pista seleccionada",
+        "select_track_to_play" to "Selecciona una pista para reproducir"
     )
 
     fun getString(key: String, language: String): String {

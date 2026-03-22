@@ -34,22 +34,24 @@ import com.example.chillmusic.ui.theme.NetflixRed
 import com.example.chillmusic.ui.theme.StatusRunning
 import com.example.chillmusic.ui.theme.StatusStopped
 import com.example.chillmusic.ui.theme.StatusWalking
+import com.example.chillmusic.ui.utils.Translation
 
 @Composable
 fun MotionIndicator(
     motionState: MotionState,
     enabled: Boolean,
-    permissionsGranted: Boolean
+    permissionsGranted: Boolean,
+    language: String
 ) {
     if (!enabled) {
-        DisabledMotionIndicator()
+        DisabledMotionIndicator(language)
         return
     }
 
     val (color, icon, text, bars) = when (motionState) {
-        MotionState.STOPPED -> Quad(StatusStopped, Icons.Filled.StopCircle, "Stopped", listOf(Color.Gray, Color.Gray, Color.Gray))
-        MotionState.WALKING -> Quad(StatusWalking, Icons.Filled.DirectionsWalk, "Walking", listOf(StatusWalking, StatusWalking, Color.Gray))
-        MotionState.RUNNING -> Quad(StatusRunning, Icons.Filled.DirectionsRun, "Running", listOf(StatusWalking, StatusWalking, StatusRunning))
+        MotionState.STOPPED -> Quad(StatusStopped, Icons.Filled.StopCircle, Translation.getString("stopped", language), listOf(Color.Gray, Color.Gray, Color.Gray))
+        MotionState.WALKING -> Quad(StatusWalking, Icons.Filled.DirectionsWalk, Translation.getString("walking", language), listOf(StatusWalking, StatusWalking, Color.Gray))
+        MotionState.RUNNING -> Quad(StatusRunning, Icons.Filled.DirectionsRun, Translation.getString("running", language), listOf(StatusWalking, StatusWalking, StatusRunning))
     }
 
     Box(
@@ -85,9 +87,9 @@ fun MotionIndicator(
                     )
                     Text(
                         text = when(motionState) {
-                            MotionState.STOPPED -> "Start moving to play music"
-                            MotionState.WALKING -> "Walking pace detected"
-                            MotionState.RUNNING -> "Running pace detected"
+                            MotionState.STOPPED -> Translation.getString("start_moving_to_play", language)
+                            MotionState.WALKING -> Translation.getString("walking_pace_detected", language)
+                            MotionState.RUNNING -> Translation.getString("running_pace_detected", language)
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = Color.Gray
@@ -109,7 +111,7 @@ fun MotionIndicator(
 }
 
 @Composable
-fun DisabledMotionIndicator() {
+fun DisabledMotionIndicator(language: String) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -121,8 +123,8 @@ fun DisabledMotionIndicator() {
         Icon(Icons.Filled.Info, contentDescription = null, tint = Color.Gray)
         Spacer(modifier = Modifier.width(12.dp))
         Column {
-            Text("Motion Detection Off", color = Color.Gray, style = MaterialTheme.typography.titleMedium)
-            Text("Enable in Settings", color = Color.DarkGray, style = MaterialTheme.typography.bodySmall)
+            Text(Translation.getString("motion_detection_off", language), color = Color.Gray, style = MaterialTheme.typography.titleMedium)
+            Text(Translation.getString("enable_in_settings", language), color = Color.DarkGray, style = MaterialTheme.typography.bodySmall)
         }
     }
 }

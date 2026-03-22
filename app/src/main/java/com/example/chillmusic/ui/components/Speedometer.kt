@@ -12,10 +12,11 @@ import androidx.compose.ui.unit.sp
 import com.example.chillmusic.ui.theme.NetflixRed
 import com.example.chillmusic.ui.theme.StatusWalking
 import com.example.chillmusic.ui.theme.StatusStopped
+import com.example.chillmusic.ui.utils.Translation
 import java.util.Locale
 
 @Composable
-fun Speedometer(speedMs: Float, steps: Int = 0) {
+fun Speedometer(speedMs: Float, steps: Int = 0, language: String) {
     val speedKmh = speedMs * 3.6f
     
     val color = when {
@@ -36,14 +37,14 @@ fun Speedometer(speedMs: Float, steps: Int = 0) {
             letterSpacing = (-2).sp
         )
         Text(
-            text = "KM/H",
+            text = Translation.getString("kmh", language),
             fontSize = 14.sp,
             fontWeight = FontWeight.Bold,
             color = color,
             letterSpacing = 2.sp
         )
         Text(
-            text = "PASOS HOY: $steps",
+            text = "${Translation.getString("steps_today", language)}$steps",
             fontSize = 12.sp,
             fontWeight = FontWeight.Bold,
             color = com.example.chillmusic.ui.theme.MutedText,
