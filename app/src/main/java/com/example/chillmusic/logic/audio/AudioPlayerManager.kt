@@ -39,7 +39,10 @@ class AudioPlayerManager(private val context: Context, private val scope: Corout
     private var playlist: List<Track> = emptyList()
     private var currentTrackIndex = -1
 
-    fun getPlayer(): ExoPlayer? = exoPlayer
+    fun getPlayer(): ExoPlayer? {
+        initPlayer()
+        return exoPlayer
+    }
 
     init {
         initPlayer()
@@ -75,6 +78,7 @@ class AudioPlayerManager(private val context: Context, private val scope: Corout
     }
 
     fun setPlaylist(tracks: List<Track>, startIndex: Int = 0) {
+        initPlayer()
         playlist = tracks
         if (tracks.isEmpty()) {
             currentTrackIndex = -1
@@ -86,6 +90,7 @@ class AudioPlayerManager(private val context: Context, private val scope: Corout
     }
     
     fun playTrack(track: Track) {
+        initPlayer()
         scope.launch {
             val uri = if (track.url.startsWith("synth://")) {
                 getOrGenerateSynthTrack(track)
@@ -105,10 +110,12 @@ class AudioPlayerManager(private val context: Context, private val scope: Corout
     }
 
     fun play() {
+        initPlayer()
         exoPlayer?.play()
     }
 
     fun pause() {
+        initPlayer()
         exoPlayer?.pause()
     }
 
@@ -130,17 +137,20 @@ class AudioPlayerManager(private val context: Context, private val scope: Corout
     }
 
     fun setVolume(volume: Float) {
+        initPlayer()
         exoPlayer?.volume = volume.coerceIn(0f, 1f)
         updateState()
     }
 
     fun setPlaybackSpeed(speed: Float) {
+        initPlayer()
         val currentParams = exoPlayer?.playbackParameters ?: PlaybackParameters.DEFAULT
         exoPlayer?.playbackParameters = currentParams.withSpeed(speed.coerceIn(0.5f, 2.0f))
         updateState()
     }
 
     fun seekTo(position: Long) {
+        initPlayer()
         exoPlayer?.seekTo(position)
         updateState()
     }

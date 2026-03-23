@@ -35,8 +35,10 @@ class MusicService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        val app = application as ChillMusicApplication
+        app.audioPlayerManager.release()
+        
         mediaSession?.run {
-            player.release()
             release()
             mediaSession = null
         }
