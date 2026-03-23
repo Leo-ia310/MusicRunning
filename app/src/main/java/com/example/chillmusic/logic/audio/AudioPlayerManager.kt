@@ -111,7 +111,14 @@ class AudioPlayerManager(private val context: Context, private val scope: Corout
 
     fun play() {
         initPlayer()
-        exoPlayer?.play()
+        val player = exoPlayer ?: return
+        // If the player was just recreated (e.g. after warm-start) it has no MediaItem.
+        // In that case, reload the current track from the playlist first.
+        if (player.mediaItemCount == 0 && currentTrackIndex >= 0 && playlist.isNotEmpty()) {
+            playTrack(playlist[currentTrackIndex])
+        } else {
+            player.play()
+        }
     }
 
     fun pause() {

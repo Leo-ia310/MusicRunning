@@ -37,23 +37,26 @@ class SyncEngine(
 
                 val motionEnabled = settings.motion.enabled
 
-                // Fix toggle race-condition: If disabled, cancel any pending pauses
+                // If motion sync is disabled, cancel any pending debounce, optionally
+                // restore speed, and do nothing else to avoid interfering with manual playback.
                 if (!motionEnabled) {
                     debounceJob?.cancel()
-                    if (playerState.speed != 1.0f) {
+                    if (playerState.isPlaying && playerState.speed != 1.0f) {
                         audioManager.setPlaybackSpeed(1.0f)
                     }
-                } else {
-                    if (settings.motion.autoPlayEnabled) {
-                        handleSmartPlayback(motionState, playerState, settings.motion.stopBehavior)
-                    }
-                    if (settings.motion.syncSpeedEnabled) {
-                        handleSpeedSync(motionState, cadence, settings.motion.syncIntensity)
-                    } else if (playerState.speed != 1.0f) {
-                        audioManager.setPlaybackSpeed(1.0f)
-                    }
+                    previousMotionState = motionState
+                    return@collect
                 }
-                
+
+                if (settings.motion.autoPlayEnabled) {
+                    handleSmartPlayback(motionState, playerState, settings.motion.stopBehavior)
+                }
+                if (settings.motion.syncSpeedEnabled) {
+                    handleSpeedSync(motionState, cadence, settings.motion.syncIntensity)
+                } else if (playerState.speed != 1.0f) {
+                    audioManager.setPlaybackSpeed(1.0f)
+                }
+
                 previousMotionState = motionState
             }
         }
