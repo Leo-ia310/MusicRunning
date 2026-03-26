@@ -64,7 +64,12 @@ fun HomeScreen(viewModel: MainViewModel) {
         Spacer(modifier = Modifier.height(24.dp))
 
         // Speedometer
-        Speedometer(speedMs = uiState.currentSpeed, steps = uiState.todaySteps, language = lang)
+        Speedometer(
+            speedMs = uiState.currentSpeed, 
+            steps = uiState.todaySteps, 
+            playbackSpeed = uiState.player.speed,
+            language = lang
+        )
 
         // Motion Indicator
         MotionIndicator(

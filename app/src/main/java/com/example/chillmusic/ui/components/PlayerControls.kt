@@ -140,18 +140,19 @@ fun PlayerControls(
             }
             
             // Play Button
+            val hasTrack = playerState.currentTrack != null
             Box(
                 modifier = Modifier
                     .size(64.dp)
                     .clip(CircleShape)
-                    .background(NetflixRed)
-                    .clickable(onClick = onPlayPause),
+                    .background(if (hasTrack) NetflixRed else ButtonGray)
+                    .then(if (hasTrack) Modifier.clickable(onClick = onPlayPause) else Modifier),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = if (playerState.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                     contentDescription = "Play/Pause",
-                    tint = Color.White,
+                    tint = if (hasTrack) Color.White else Color.Gray,
                     modifier = Modifier.size(32.dp)
                 )
             }

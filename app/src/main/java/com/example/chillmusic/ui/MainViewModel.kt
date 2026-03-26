@@ -100,7 +100,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // --- Actions ---
 
     fun togglePlayPause() {
-        if (uiState.value.player.isPlaying) audioManager.pause() else audioManager.play()
+        // Read directly from the source StateFlow to avoid stale state from the combined uiState
+        if (audioManager.playerState.value.isPlaying) audioManager.pause() else audioManager.play()
     }
 
     fun nextTrack() = audioManager.next()

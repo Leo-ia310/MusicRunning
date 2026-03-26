@@ -16,7 +16,7 @@ import com.example.chillmusic.ui.utils.Translation
 import java.util.Locale
 
 @Composable
-fun Speedometer(speedMs: Float, steps: Int = 0, language: String) {
+fun Speedometer(speedMs: Float, steps: Int = 0, playbackSpeed: Float = 1.0f, language: String) {
     val speedKmh = speedMs * 3.6f
     
     val color = when {
@@ -48,7 +48,17 @@ fun Speedometer(speedMs: Float, steps: Int = 0, language: String) {
             fontSize = 12.sp,
             fontWeight = FontWeight.Bold,
             color = com.example.chillmusic.ui.theme.MutedText,
-            modifier = Modifier.padding(top = 16.dp)
+            modifier = Modifier.padding(top = 8.dp)
         )
+
+        if (playbackSpeed != 1.0f) {
+            Text(
+                text = String.format(Locale.US, "%.2fx %s", playbackSpeed, Translation.getString("speed", language)),
+                fontSize = 14.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = NetflixRed,
+                modifier = Modifier.padding(top = 8.dp)
+            )
+        }
     }
 }

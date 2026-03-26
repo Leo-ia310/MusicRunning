@@ -165,36 +165,35 @@ class MotionDetector(
     private fun evaluateMotion() {
         if (!isDetecting) return
 
-        val factor = (11 - motionSettings.sensitivity) / 5f
-        val walkThreshold = motionSettings.walkingThreshold * factor
-        val runThreshold = motionSettings.runningThreshold * factor
+        scope.launch(Dispatchers.Default) {
+            val factor = (11 - motionSettings.sensitivity) / 5f
+            val walkThreshold = motionSettings.walkingThreshold * factor
+            val runThreshold = motionSettings.runningThreshold * factor
 
-        // Discard GPS speed if it's older than 10 seconds (signal lost)
-        val isGpsValid = (System.currentTimeMillis() - lastGeoSpeedTimestamp) < 10000
-        
-        // Convert Cadence (steps/min) to approx m/s (assuming 0.8m per step)
-        val fakeSpeedFromCadence = (_stepCadence.value * 0.8f) / 60f
-        
-        val effectiveSpeed = if (isGpsValid && lastGeoSpeed > 0.5f) {
-            lastGeoSpeed 
-        } else {
-            fakeSpeedFromCadence
-        }
+            val isGpsValid = (System.currentTimeMillis() - lastGeoSpeedTimestamp) < 10000
+            val currentCadence = _stepCadence.value
+            val fakeSpeedFromCadence = (currentCadence * 0.8f) / 60f
+            
+            val effectiveSpeed = if (isGpsValid && lastGeoSpeed > 0.5f) {
+                lastGeoSpeed 
+            } else {
+                fakeSpeedFromCadence
+            }
 
-        val newState = when {
-            effectiveSpeed >= runThreshold -> RUNNING
-            effectiveSpeed >= walkThreshold -> WALKING
-            else -> STOPPED
-        }
+            val newState = when {
+                effectiveSpeed >= runThreshold -> RUNNING
+                effectiveSpeed >= walkThreshold -> WALKING
+                else -> STOPPED
+            }
 
-        if (newState == STOPPED && _motionState.value != STOPPED) {
-            stepTimestamps.clear()
-            scope.launch(Dispatchers.Main) { _stepCadence.value = 0 }
-        }
-
-        scope.launch(Dispatchers.Main) {
-            _motionState.value = newState
-            _currentSpeed.value = effectiveSpeed
+            withContext(Dispatchers.Main) {
+                if (newState == STOPPED && _motionState.value != STOPPED) {
+                    stepTimestamps.clear()
+                    _stepCadence.value = 0
+                }
+                _motionState.value = newState
+                _currentSpeed.value = effectiveSpeed
+            }
         }
     }
 }

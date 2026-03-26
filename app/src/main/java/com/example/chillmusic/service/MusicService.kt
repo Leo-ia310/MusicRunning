@@ -36,6 +36,10 @@ class MusicService : MediaSessionService() {
 
     override fun onDestroy() {
         val app = application as ChillMusicApplication
+        
+        // Stop motion detection to release sensors and GPS
+        app.motionDetector.stopDetection()
+        
         app.audioPlayerManager.release()
         
         mediaSession?.run {

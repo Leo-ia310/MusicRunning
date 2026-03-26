@@ -69,8 +69,12 @@ fun SettingsScreen(viewModel: MainViewModel) {
     
     // Update VM with permission status
     LaunchedEffect(permissionsState.allPermissionsGranted) {
+        val motionPermissionGranted = permissionsState.permissions.any { 
+            it.permission == "android.permission.ACTIVITY_RECOGNITION" && it.status.isGranted 
+        } || android.os.Build.VERSION.SDK_INT < 29 // Android 10+ needs explicit permission
+        
         viewModel.updatePermissionsStatus(
-            motion = true, // We assume accelerometer is always available/granted for now
+            motion = motionPermissionGranted,
             location = permissionsState.allPermissionsGranted
         )
     }

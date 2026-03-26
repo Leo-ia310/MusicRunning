@@ -2,9 +2,13 @@ package com.example.chillmusic.data.repository
 
 import android.content.Context
 import android.content.SharedPreferences
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -12,6 +16,7 @@ import java.util.Locale
 class FitnessRepository(context: Context) {
     private val prefs: SharedPreferences = context.getSharedPreferences("fitness_prefs", Context.MODE_PRIVATE)
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+    private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private val _dailySteps = MutableStateFlow(0)
     val dailySteps: StateFlow<Int> = _dailySteps.asStateFlow()
@@ -31,12 +36,14 @@ class FitnessRepository(context: Context) {
     }
 
     fun addStep() {
-        val today = getTodayDateString()
-        val currentSteps = prefs.getInt(today, 0)
-        val newSteps = currentSteps + 1
-        
-        prefs.edit().putInt(today, newSteps).apply()
-        _dailySteps.value = newSteps
+        repositoryScope.launch {
+            val today = getTodayDateString()
+            val currentSteps = prefs.getInt(today, 0)
+            val newSteps = currentSteps + 1
+            
+            prefs.edit().putInt(today, newSteps).apply()
+            _dailySteps.value = newSteps
+        }
     }
 
     fun getHistory(): Map<String, Int> {

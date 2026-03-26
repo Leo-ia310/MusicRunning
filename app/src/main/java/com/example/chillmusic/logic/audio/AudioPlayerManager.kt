@@ -86,9 +86,32 @@ class AudioPlayerManager(private val context: Context, private val scope: Corout
             return
         }
         currentTrackIndex = startIndex.coerceIn(0, tracks.size - 1)
-        playTrack(playlist[currentTrackIndex])
+        // Prepare the first track without auto-playing — user or SyncEngine will trigger play()
+        prepareTrack(playlist[currentTrackIndex])
     }
     
+    /** Loads and prepares a track without starting playback. */
+    fun prepareTrack(track: Track) {
+        initPlayer()
+        scope.launch {
+            val uri = if (track.url.startsWith("synth://")) {
+                getOrGenerateSynthTrack(track)
+            } else {
+                Uri.parse(track.url)
+            }
+
+            withContext(Dispatchers.Main) {
+                exoPlayer?.run {
+                    setMediaItem(MediaItem.fromUri(uri))
+                    prepare()
+                    // No play() call — just prepare
+                }
+                _playerState.value = _playerState.value.copy(currentTrack = track)
+            }
+        }
+    }
+
+    /** Loads, prepares, and immediately starts playing a track. */
     fun playTrack(track: Track) {
         initPlayer()
         scope.launch {
@@ -112,12 +135,22 @@ class AudioPlayerManager(private val context: Context, private val scope: Corout
     fun play() {
         initPlayer()
         val player = exoPlayer ?: return
-        // If the player was just recreated (e.g. after warm-start) it has no MediaItem.
-        // In that case, reload the current track from the playlist first.
-        if (player.mediaItemCount == 0 && currentTrackIndex >= 0 && playlist.isNotEmpty()) {
-            playTrack(playlist[currentTrackIndex])
-        } else {
-            player.play()
+        when {
+            // No media loaded at all — load from playlist and play
+            player.mediaItemCount == 0 && currentTrackIndex >= 0 && playlist.isNotEmpty() -> {
+                playTrack(playlist[currentTrackIndex])
+            }
+            // Media item exists but player wasn't prepared (STATE_IDLE) — prepare then play
+            player.mediaItemCount > 0 && player.playbackState == Player.STATE_IDLE -> {
+                player.prepare()
+                player.play()
+            }
+            // Player is ready or buffering — just play
+            player.mediaItemCount > 0 -> {
+                player.play()
+            }
+            // No playlist, no track — nothing to do
+            else -> Unit
         }
     }
 
@@ -163,9 +196,9 @@ class AudioPlayerManager(private val context: Context, private val scope: Corout
     }
 
     fun release() {
+        stopProgressUpdates()
         exoPlayer?.release()
         exoPlayer = null
-        stopProgressUpdates()
     }
 
     private fun handleTrackEnd() {
@@ -174,15 +207,14 @@ class AudioPlayerManager(private val context: Context, private val scope: Corout
     }
 
     private fun updateState() {
-        exoPlayer?.let { player ->
-            _playerState.value = _playerState.value.copy(
-                isPlaying = player.isPlaying,
-                volume = player.volume,
-                speed = player.playbackParameters.speed,
-                duration = player.duration.coerceAtLeast(0),
-                progress = player.currentPosition
-            )
-        }
+        val player = exoPlayer ?: return
+        _playerState.value = _playerState.value.copy(
+            isPlaying = player.isPlaying,
+            volume = player.volume,
+            speed = player.playbackParameters.speed,
+            duration = player.duration.coerceAtLeast(0),
+            progress = player.currentPosition
+        )
     }
 
     private fun startProgressUpdates() {
