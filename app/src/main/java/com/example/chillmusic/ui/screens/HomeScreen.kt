@@ -87,6 +87,7 @@ fun HomeScreen(viewModel: MainViewModel) {
             onPrev = viewModel::prevTrack,
             onVolumeChange = viewModel::setVolume,
             onSeek = viewModel::seekTo,
+            onRepeatToggle = viewModel::toggleRepeatMode,
             language = lang
         )
     }

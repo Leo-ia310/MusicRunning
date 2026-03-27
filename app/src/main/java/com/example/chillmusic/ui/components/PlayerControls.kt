@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
@@ -51,6 +52,7 @@ fun PlayerControls(
     onPrev: () -> Unit,
     onVolumeChange: (Float) -> Unit,
     onSeek: (Long) -> Unit,
+    onRepeatToggle: () -> Unit,
     language: String
 ) {
     Column(
@@ -160,8 +162,16 @@ fun PlayerControls(
             IconButton(onClick = onNext) {
                 Icon(Icons.Filled.SkipNext, null, tint = Color.White, modifier = Modifier.size(32.dp))
             }
-            IconButton(onClick = { /* Repeat */ }) {
-                Icon(Icons.Filled.Repeat, null, tint = Color.Gray)
+
+            val isRepeatActive = playerState.repeatMode != com.example.chillmusic.data.model.RepeatMode.NONE
+            val repeatIconTint = if (isRepeatActive) NetflixRed else Color.Gray
+            IconButton(onClick = onRepeatToggle) {
+                Icon(
+                    imageVector = if (playerState.repeatMode == com.example.chillmusic.data.model.RepeatMode.ONE) 
+                        Icons.Filled.RepeatOne else Icons.Filled.Repeat, 
+                    contentDescription = "Repeat", 
+                    tint = repeatIconTint
+                )
             }
         }
 

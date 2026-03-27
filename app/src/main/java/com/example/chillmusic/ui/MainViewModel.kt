@@ -108,6 +108,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun prevTrack() = audioManager.previous()
     fun setVolume(v: Float) = audioManager.setVolume(v)
     fun seekTo(position: Long) = audioManager.seekTo(position)
+    fun toggleRepeatMode() = audioManager.toggleRepeatMode()
 
     fun playTrack(track: Track) {
         audioManager.playTrack(track)

@@ -56,10 +56,13 @@ class MotionDetector(
     private var lastAcceleration = 0f
     private var lastGeoSpeed = 0f
     private var lastGeoSpeedTimestamp = 0L
+    private var lastStepDetectionTimestamp = 0L
+    private var isAccelerometerStepDetectorActive = false
 
-    // Buffer for smoothing acceleration (simple moving average)
-    private val accelBuffer = FloatArray(10)
-    private var bufferIndex = 0
+    // Simple peak detection for accelerometer steps
+    private var lastPeakMagnitude = 0f
+    private var isSearchingForPeak = true
+    private val STEP_MAGNITUDE_THRESHOLD = 2.2f // Adjust based on sensitivity
 
     fun updateSettings(settings: MotionSettings) {
         this.motionSettings = settings
@@ -124,27 +127,63 @@ class MotionDetector(
                 val magnitude = sqrt((x * x + y * y + z * z).toDouble()).toFloat()
                 val netAcceleration = abs(magnitude - 9.81f)
 
-                // Smoothing
+                // 1. Fallback Step Detection logic (if hardware detector is silent)
+                detectStepFromAccelerometer(netAcceleration)
+
+                // 2. Smoothing for general motion Evaluation
                 accelBuffer[bufferIndex] = netAcceleration
                 bufferIndex = (bufferIndex + 1) % accelBuffer.size
                 lastAcceleration = accelBuffer.average().toFloat()
 
                 evaluateMotion()
             } else if (it.sensor.type == Sensor.TYPE_STEP_DETECTOR) {
-                fitnessRepo.addStep()
+                // If hardware detector works, we prefer it
+                isAccelerometerStepDetectorActive = false
+                registerStep()
+            }
+        }
+    }
+
+    private fun detectStepFromAccelerometer(magnitude: Float) {
+        val factor = (11 - motionSettings.sensitivity) / 5f
+        val threshold = STEP_MAGNITUDE_THRESHOLD * factor
+
+        if (isSearchingForPeak) {
+            if (magnitude > threshold) {
+                isSearchingForPeak = false
+                lastPeakMagnitude = magnitude
+            }
+        } else {
+            if (magnitude < threshold * 0.8f) {
+                // We found a peak and now magnitude dropped, count as step
+                isSearchingForPeak = true
                 
+                // Debounce steps (max 5 per second)
                 val now = System.currentTimeMillis()
-                stepTimestamps.add(now)
-                // keep only last 5 seconds to calculate rolling cadence
-                stepTimestamps.removeAll { t -> now - t > 5000 }
-                
-                if (stepTimestamps.size >= 2) {
-                    val durationMs = stepTimestamps.last() - stepTimestamps.first()
-                    if (durationMs > 0) {
-                        val cadence = ((stepTimestamps.size - 1) * 60000L / durationMs).toInt()
-                        scope.launch(Dispatchers.Main) { _stepCadence.value = cadence }
-                    }
+                if (now - lastStepDetectionTimestamp > 200) {
+                    isAccelerometerStepDetectorActive = true
+                    registerStep()
+                    lastStepDetectionTimestamp = now
                 }
+            } else if (magnitude > lastPeakMagnitude) {
+                lastPeakMagnitude = magnitude
+            }
+        }
+    }
+
+    private fun registerStep() {
+        fitnessRepo.addStep()
+        
+        val now = System.currentTimeMillis()
+        stepTimestamps.add(now)
+        // keep only last 5 seconds to calculate rolling cadence
+        stepTimestamps.removeAll { t -> now - t > 5000 }
+        
+        if (stepTimestamps.size >= 2) {
+            val durationMs = stepTimestamps.last() - stepTimestamps.first()
+            if (durationMs > 0) {
+                val cadence = ((stepTimestamps.size - 1) * 60000L / durationMs).toInt()
+                scope.launch(Dispatchers.Main) { _stepCadence.value = cadence }
             }
         }
     }
@@ -173,7 +212,10 @@ class MotionDetector(
 
             val isGpsValid = (System.currentTimeMillis() - lastGeoSpeedTimestamp) < 10000
             val currentCadence = _stepCadence.value
-            val fakeSpeedFromCadence = (currentCadence * 0.8f) / 60f
+            
+            // Cadence to speed estimation: 120 steps/min ~ 1.6 m/s (walking/jogging)
+            // If we have active steps, ensure a minimum speed to trigger WALKING
+            val fakeSpeedFromCadence = if (currentCadence > 0) (currentCadence * 0.015f) else 0f
             
             val effectiveSpeed = if (isGpsValid && lastGeoSpeed > 0.5f) {
                 lastGeoSpeed 
@@ -182,8 +224,8 @@ class MotionDetector(
             }
 
             val newState = when {
-                effectiveSpeed >= runThreshold -> RUNNING
-                effectiveSpeed >= walkThreshold -> WALKING
+                effectiveSpeed >= runThreshold || currentCadence > 150 -> RUNNING
+                effectiveSpeed >= walkThreshold || currentCadence > 50 -> WALKING
                 else -> STOPPED
             }
 

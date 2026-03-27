@@ -6,5 +6,6 @@ data class PlayerState(
     val volume: Float = 1.0f,
     val speed: Float = 1.0f,
     val progress: Long = 0L,
-    val duration: Long = 0L
+    val duration: Long = 0L,
+    val repeatMode: RepeatMode = RepeatMode.NONE
 )

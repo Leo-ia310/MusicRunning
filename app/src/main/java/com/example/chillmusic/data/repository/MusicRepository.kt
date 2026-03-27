@@ -17,32 +17,7 @@ class MusicRepository(private val context: Context) {
     private val gson = Gson()
     private val USER_TRACKS_FILE = "user_tracks.json"
 
-    val catalog: List<Track> = listOf(
-        Track(
-            id = "synth_1",
-            title = "Pulse of the Road",
-            artist = "ChillRun AI",
-            duration = 180000,
-            url = "synth://low_pulse",
-            source = Track.Source.CATALOG
-        ),
-        Track(
-            id = "synth_2",
-            title = "Midnight Sprint",
-            artist = "ChillRun AI",
-            duration = 240000,
-            url = "synth://fast_beat",
-            source = Track.Source.CATALOG
-        ),
-        Track(
-            id = "synth_3",
-            title = "Zen Jog",
-            artist = "ChillRun AI",
-            duration = 300000,
-            url = "synth://ambient_flow",
-            source = Track.Source.CATALOG
-        )
-    )
+    val catalog: List<Track> = emptyList()
 
     suspend fun getUserTracks(): List<Track> = withContext(Dispatchers.IO) {
         val file = File(context.filesDir, USER_TRACKS_FILE)

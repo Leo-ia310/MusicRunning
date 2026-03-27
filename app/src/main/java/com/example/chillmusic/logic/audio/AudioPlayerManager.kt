@@ -9,6 +9,7 @@ import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import com.example.chillmusic.data.model.PlayerState
+import com.example.chillmusic.data.model.RepeatMode
 import com.example.chillmusic.data.model.Track
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -195,15 +196,35 @@ class AudioPlayerManager(private val context: Context, private val scope: Corout
         updateState()
     }
 
-    fun release() {
-        stopProgressUpdates()
-        exoPlayer?.release()
-        exoPlayer = null
+    fun toggleRepeatMode() {
+        initPlayer()
+        val currentMode = _playerState.value.repeatMode
+        val newMode = when (currentMode) {
+            RepeatMode.NONE -> RepeatMode.ALL
+            RepeatMode.ALL -> RepeatMode.ONE
+            RepeatMode.ONE -> RepeatMode.NONE
+        }
+        _playerState.value = _playerState.value.copy(repeatMode = newMode)
     }
 
     private fun handleTrackEnd() {
-        // Here we could check repeat mode. Defaulting to next for now.
-        next()
+        val mode = _playerState.value.repeatMode
+        when (mode) {
+            RepeatMode.ONE -> {
+                exoPlayer?.seekTo(0)
+                exoPlayer?.play()
+            }
+            RepeatMode.ALL -> {
+                next()
+            }
+            RepeatMode.NONE -> {
+                if (currentTrackIndex < playlist.size - 1) {
+                    next()
+                } else {
+                    pause()
+                }
+            }
+        }
     }
 
     private fun updateState() {
@@ -213,7 +234,8 @@ class AudioPlayerManager(private val context: Context, private val scope: Corout
             volume = player.volume,
             speed = player.playbackParameters.speed,
             duration = player.duration.coerceAtLeast(0),
-            progress = player.currentPosition
+            progress = player.currentPosition,
+            repeatMode = _playerState.value.repeatMode
         )
     }
 
