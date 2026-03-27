@@ -63,6 +63,8 @@ class MotionDetector(
     private var lastPeakMagnitude = 0f
     private var isSearchingForPeak = true
     private val STEP_MAGNITUDE_THRESHOLD = 2.2f // Adjust based on sensitivity
+    private val accelBuffer = FloatArray(10)
+    private var bufferIndex = 0
 
     fun updateSettings(settings: MotionSettings) {
         this.motionSettings = settings

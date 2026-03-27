@@ -253,6 +253,12 @@ class AudioPlayerManager(private val context: Context, private val scope: Corout
         progressJob?.cancel()
     }
 
+    fun release() {
+        exoPlayer?.release()
+        exoPlayer = null
+        stopProgressUpdates()
+    }
+
     // --- Synthesis Logic ---
     private suspend fun getOrGenerateSynthTrack(track: Track): Uri = withContext(Dispatchers.IO) {
         val filename = "${track.id}.wav"
