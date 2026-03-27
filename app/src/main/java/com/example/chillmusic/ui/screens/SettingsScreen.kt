@@ -48,6 +48,7 @@ import com.example.chillmusic.ui.theme.ButtonGray
 import com.example.chillmusic.ui.theme.NetflixRed
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
+import com.google.accompanist.permissions.isGranted
 
 import com.example.chillmusic.ui.utils.Translation
 
