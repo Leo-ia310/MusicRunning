@@ -5,14 +5,13 @@ data class Track(
     val title: String,
     val artist: String,
     val album: String? = null,
-    val duration: Long, // Duration in milliseconds
-    val url: String, // Path to audio file
+    val duration: Long,
+    val url: String,
     val source: Source,
     val license: String? = null,
     val coverUrl: String? = null
 ) {
     enum class Source {
-        CATALOG,
         USER
     }
 }

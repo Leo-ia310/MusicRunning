@@ -28,7 +28,7 @@ fun MainScreen(viewModel: MainViewModel) {
                     viewModel.onTabSelected(index)
                     when (index) {
                         0 -> navController.navigate("home") { launchSingleTop = true }
-                        1 -> navController.navigate("library") { launchSingleTop = true }
+                        1 -> navController.navigate("music") { launchSingleTop = true }
                         2 -> navController.navigate("settings") { launchSingleTop = true }
                     }
                 }
@@ -38,12 +38,12 @@ fun MainScreen(viewModel: MainViewModel) {
         NavHost(
             navController = navController,
             startDestination = "home",
-            modifier = androidx.compose.ui.Modifier.padding(innerPadding)
+            modifier = Modifier.padding(innerPadding)
         ) {
             composable("home") {
                 HomeScreen(viewModel)
             }
-            composable("library") {
+            composable("music") {
                 LibraryScreen(viewModel)
             }
             composable("settings") {

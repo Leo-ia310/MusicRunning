@@ -16,18 +16,20 @@ class MusicService : MediaSessionService() {
         super.onCreate()
         val app = application as ChillMusicApplication
         val player = app.audioPlayerManager.getPlayer()
-        
-        // Ensure player is initialized. In a real app we might need to wait for it or init it here too.
-        // But app.audioPlayerManager inits it in init block.
         if (player != null) {
             mediaSession = MediaSession.Builder(this, player).build()
         }
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
-        val player = mediaSession?.player
-        player?.pause()
-        stopSelf()
+        val app = application as ChillMusicApplication
+        val shouldStop = MusicServicePolicy.shouldStopOnTaskRemoved(
+            isPlaying = mediaSession?.player?.isPlaying == true,
+            motionModeEnabled = app.settingsRepository.settings.value.motion.enabled
+        )
+        if (shouldStop) {
+            stopSelf()
+        }
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
@@ -35,13 +37,6 @@ class MusicService : MediaSessionService() {
     }
 
     override fun onDestroy() {
-        val app = application as ChillMusicApplication
-        
-        // Stop motion detection to release sensors and GPS
-        app.motionDetector.stopDetection()
-        
-        app.audioPlayerManager.release()
-        
         mediaSession?.run {
             release()
             mediaSession = null

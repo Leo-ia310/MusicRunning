@@ -6,15 +6,14 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.chillmusic.ChillMusicApplication
 import com.example.chillmusic.data.model.AppSettings
+import com.example.chillmusic.data.model.MotionSettings
+import com.example.chillmusic.data.model.MotionState
+import com.example.chillmusic.data.model.PlayerState
+import com.example.chillmusic.data.model.Track
 import com.example.chillmusic.data.repository.MusicRepository
 import com.example.chillmusic.data.repository.SettingsRepository
 import com.example.chillmusic.logic.audio.AudioPlayerManager
 import com.example.chillmusic.logic.sensor.MotionDetector
-import com.example.chillmusic.data.model.MotionSettings
-import com.example.chillmusic.data.model.MotionState
-import com.example.chillmusic.data.model.PlayerState
-import com.example.chillmusic.data.model.StopBehavior
-import com.example.chillmusic.data.model.Track
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -27,7 +26,6 @@ data class UiState(
     val motionState: MotionState = MotionState.STOPPED,
     val currentSpeed: Float = 0f,
     val settings: AppSettings = AppSettings(),
-    val catalog: List<Track> = emptyList(),
     val userTracks: List<Track> = emptyList(),
     val activeTab: String = "home",
     val permissionsGranted: PermissionsState = PermissionsState(),
@@ -36,7 +34,6 @@ data class UiState(
 )
 
 data class LocalUiState(
-    val catalog: List<Track> = emptyList(),
     val userTracks: List<Track> = emptyList(),
     val activeTab: String = "home",
     val permissionsGranted: PermissionsState = PermissionsState()
@@ -45,7 +42,10 @@ data class LocalUiState(
 data class PermissionsState(
     val motion: Boolean = false,
     val location: Boolean = false
-)
+) {
+    val allGranted: Boolean
+        get() = motion && location
+}
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -54,11 +54,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val settingsRepo: SettingsRepository = app.settingsRepository
     private val audioManager: AudioPlayerManager = app.audioPlayerManager
     private val motionDetector: MotionDetector = app.motionDetector
-
     private val fitnessRepo = app.fitnessRepository
     private val _localUiState = MutableStateFlow(LocalUiState())
 
-    // Combined UI State
     val uiState: StateFlow<UiState> = combine(
         audioManager.playerState,
         motionDetector.motionState,
@@ -73,7 +71,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             stepCadence = cadence,
             settings = extra.first,
             todaySteps = extra.second,
-            catalog = extra.third.catalog,
             userTracks = extra.third.userTracks,
             activeTab = extra.third.activeTab,
             permissionsGranted = extra.third.permissionsGranted
@@ -87,60 +84,58 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun loadTracks() {
         viewModelScope.launch {
             val userTracks = musicRepo.getUserTracks()
-            val catalog = musicRepo.catalog
-            _localUiState.value = _localUiState.value.copy(
-                catalog = catalog,
-                userTracks = userTracks
-            )
-            // Initial playlist
-            audioManager.setPlaylist(catalog + userTracks)
+            _localUiState.value = _localUiState.value.copy(userTracks = userTracks)
+            audioManager.refreshPlaylist(userTracks)
         }
     }
 
-    // --- Actions ---
-
     fun togglePlayPause() {
-        // Read directly from the source StateFlow to avoid stale state from the combined uiState
         if (audioManager.playerState.value.isPlaying) audioManager.pause() else audioManager.play()
     }
 
     fun nextTrack() = audioManager.next()
+
     fun prevTrack() = audioManager.previous()
+
     fun setVolume(v: Float) = audioManager.setVolume(v)
+
     fun seekTo(position: Long) = audioManager.seekTo(position)
+
     fun toggleRepeatMode() = audioManager.toggleRepeatMode()
 
     fun playTrack(track: Track) {
-        audioManager.playTrack(track)
+        audioManager.playTrack(track, _localUiState.value.userTracks)
     }
 
     fun updateMotionSettings(newSettings: MotionSettings) {
         settingsRepo.updateMotionSettings(newSettings)
         motionDetector.updateSettings(newSettings)
     }
-    
+
     fun updateLanguage(lang: String) {
         settingsRepo.updateLanguage(lang)
     }
 
     fun toggleMotionDetection(enable: Boolean) {
         val currentSettings = uiState.value.settings.motion
-        // Avoid loop if setting is same
         if (currentSettings.enabled == enable) return
-        
+
         updateMotionSettings(currentSettings.copy(enabled = enable))
-        
+
         if (enable) {
-            motionDetector.startDetection()
+            val started = motionDetector.startDetection()
+            if (!started) {
+                updateMotionSettings(currentSettings.copy(enabled = false))
+            }
         } else {
             motionDetector.stopDetection()
         }
     }
 
     fun onTabSelected(index: Int) {
-        val tab = when(index) {
+        val tab = when (index) {
             0 -> "home"
-            1 -> "library"
+            1 -> "music"
             else -> "settings"
         }
         _localUiState.value = _localUiState.value.copy(activeTab = tab)
@@ -150,9 +145,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _localUiState.value = _localUiState.value.copy(
             permissionsGranted = PermissionsState(motion, location)
         )
-        // If granted and enabled, ensure detector is running
+
         if (motion && location && uiState.value.settings.motion.enabled) {
             motionDetector.startDetection()
+        } else if (!motion || !location) {
+            motionDetector.stopDetection()
         }
     }
 
@@ -160,7 +157,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val newTrack = musicRepo.addUserTrack(uri)
             if (newTrack != null) {
-                loadTracks() // reload list
+                loadTracks()
             }
         }
     }
@@ -173,7 +170,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (newTrack != null) anyAdded = true
             }
             if (anyAdded) {
-                loadTracks() // reload list once after all added
+                loadTracks()
             }
         }
     }

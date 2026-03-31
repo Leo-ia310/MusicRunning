@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -29,17 +30,10 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
-import androidx.compose.material3.TabRowDefaults
-import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -51,16 +45,16 @@ import com.example.chillmusic.ui.MainViewModel
 import com.example.chillmusic.ui.components.formatTime
 import com.example.chillmusic.ui.theme.ButtonGray
 import com.example.chillmusic.ui.theme.NetflixRed
-
 import com.example.chillmusic.ui.utils.Translation
 
 @Composable
 fun LibraryScreen(viewModel: MainViewModel) {
     val uiState by viewModel.uiState.collectAsState()
-    var selectedTabIndex by remember { mutableIntStateOf(0) }
     val lang = uiState.settings.language
-    
-    val launcher = rememberLauncherForActivityResult(contract = ActivityResultContracts.GetMultipleContents()) { uris: List<Uri> ->
+
+    val launcher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris: List<Uri> ->
         if (uris.isNotEmpty()) {
             viewModel.addUserTracks(uris)
         }
@@ -73,76 +67,51 @@ fun LibraryScreen(viewModel: MainViewModel) {
             .padding(bottom = 80.dp)
     ) {
         Spacer(modifier = Modifier.height(32.dp))
-        
+
         Text(
-            text = Translation.getString("library", lang),
+            text = Translation.getString("your_music", lang),
             style = MaterialTheme.typography.titleLarge,
             color = Color.White,
             fontWeight = FontWeight.Bold
         )
-        
+
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Tabs
-        TabRow(
-            selectedTabIndex = selectedTabIndex,
-            containerColor = Color.Transparent,
-            contentColor = NetflixRed,
-            indicator = { tabPositions ->
-                TabRowDefaults.Indicator(
-                    Modifier.tabIndicatorOffset(tabPositions[selectedTabIndex]),
-                    color = NetflixRed
-                )
-            }
+        Button(
+            onClick = { launcher.launch(arrayOf("audio/*")) },
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(containerColor = ButtonGray)
         ) {
-            Tab(
-                selected = selectedTabIndex == 0,
-                onClick = { selectedTabIndex = 0 },
-                text = { Text("${Translation.getString("chill_music", lang)} (${uiState.catalog.size})") }
-            )
-            Tab(
-                selected = selectedTabIndex == 1,
-                onClick = { selectedTabIndex = 1 },
-                text = { Text("${Translation.getString("your_music", lang)} (${uiState.userTracks.size})") }
-            )
+            Icon(Icons.Filled.Add, null, tint = NetflixRed)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(Translation.getString("import_music", lang), color = Color.White)
         }
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        if (selectedTabIndex == 1) {
-            Button(
-                onClick = { launcher.launch("audio/*") },
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(containerColor = ButtonGray)
+        if (uiState.userTracks.isEmpty()) {
+            Text(
+                text = Translation.getString("no_tracks", lang),
+                color = Color.Gray,
+                modifier = Modifier.padding(top = 8.dp)
+            )
+            Text(
+                text = Translation.getString("import_music_hint", lang),
+                color = Color.DarkGray,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+        } else {
+            LazyColumn(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Icon(Icons.Filled.Add, null, tint = NetflixRed)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(Translation.getString("upload_mp3", lang), color = Color.White)
-            }
-            Spacer(modifier = Modifier.height(16.dp))
-        }
-
-        val tracks = if (selectedTabIndex == 0) uiState.catalog else uiState.userTracks
-
-        LazyColumn(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            items(tracks) { track ->
-                TrackItem(
-                    track = track,
-                    isPlaying = uiState.player.currentTrack?.id == track.id,
-                    onClick = { viewModel.playTrack(track) },
-                    onDelete = if (selectedTabIndex == 1) { { viewModel.removeUserTrack(track) } } else null
-                )
-            }
-            
-            if (tracks.isEmpty()) {
-                item {
-                    Text(
-                        text = Translation.getString("no_tracks", lang),
-                        color = Color.Gray,
-                        modifier = Modifier.padding(16.dp)
+                items(uiState.userTracks) { track ->
+                    TrackItem(
+                        track = track,
+                        isPlaying = uiState.player.currentTrack?.id == track.id,
+                        onClick = { viewModel.playTrack(track) },
+                        onDelete = { viewModel.removeUserTrack(track) }
                     )
                 }
             }
@@ -151,16 +120,19 @@ fun LibraryScreen(viewModel: MainViewModel) {
 }
 
 @Composable
-fun TrackItem(
+private fun TrackItem(
     track: Track,
     isPlaying: Boolean,
     onClick: () -> Unit,
-    onDelete: (() -> Unit)? = null
+    onDelete: () -> Unit
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(if (isPlaying) NetflixRed.copy(alpha = 0.1f) else ButtonGray, RoundedCornerShape(8.dp))
+            .background(
+                if (isPlaying) NetflixRed.copy(alpha = 0.1f) else ButtonGray,
+                RoundedCornerShape(8.dp)
+            )
             .clickable(onClick = onClick)
             .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -178,9 +150,9 @@ fun TrackItem(
                 tint = Color.White
             )
         }
-        
+
         Spacer(modifier = Modifier.width(12.dp))
-        
+
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = track.title,
@@ -196,18 +168,17 @@ fun TrackItem(
                 maxLines = 1
             )
         }
-        
+
         Text(
             text = formatTime(track.duration),
             style = MaterialTheme.typography.bodySmall,
             color = Color.Gray
         )
-        
-        if (onDelete != null) {
-            Spacer(modifier = Modifier.width(8.dp))
-            IconButton(onClick = onDelete) {
-                Icon(Icons.Filled.Delete, null, tint = Color.Gray, modifier = Modifier.size(20.dp))
-            }
+
+        Spacer(modifier = Modifier.width(8.dp))
+
+        IconButton(onClick = onDelete) {
+            Icon(Icons.Filled.Delete, null, tint = Color.Gray, modifier = Modifier.size(20.dp))
         }
     }
 }

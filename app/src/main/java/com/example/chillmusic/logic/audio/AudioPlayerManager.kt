@@ -5,12 +5,15 @@ import android.net.Uri
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import com.example.chillmusic.data.model.PlayerErrorType
 import com.example.chillmusic.data.model.PlayerState
 import com.example.chillmusic.data.model.RepeatMode
 import com.example.chillmusic.data.model.Track
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -30,13 +33,12 @@ import kotlin.math.sin
 class AudioPlayerManager(private val context: Context, private val scope: CoroutineScope) {
 
     private var exoPlayer: ExoPlayer? = null
-    
+
     private val _playerState = MutableStateFlow(PlayerState())
     val playerState: StateFlow<PlayerState> = _playerState.asStateFlow()
 
     private var progressJob: Job? = null
-    
-    // Queue management could be here or in ViewModel. Let's keep it simple here.
+    private var loadTrackJob: Job? = null
     private var playlist: List<Track> = emptyList()
     private var currentTrackIndex = -1
 
@@ -50,17 +52,19 @@ class AudioPlayerManager(private val context: Context, private val scope: Corout
     }
 
     private fun initPlayer() {
-        if (exoPlayer == null) {
-            val audioAttributes = AudioAttributes.Builder()
-                .setUsage(C.USAGE_MEDIA)
-                .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
-                .build()
+        if (exoPlayer != null) return
 
-            exoPlayer = ExoPlayer.Builder(context)
-                .setAudioAttributes(audioAttributes, true)
-                .setHandleAudioBecomingNoisy(true)
-                .setWakeMode(C.WAKE_MODE_LOCAL)
-                .build().apply {
+        val audioAttributes = AudioAttributes.Builder()
+            .setUsage(C.USAGE_MEDIA)
+            .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+            .build()
+
+        exoPlayer = ExoPlayer.Builder(context)
+            .setAudioAttributes(audioAttributes, true)
+            .setHandleAudioBecomingNoisy(true)
+            .setWakeMode(C.WAKE_MODE_LOCAL)
+            .build()
+            .apply {
                 addListener(object : Player.Listener {
                     override fun onPlaybackStateChanged(playbackState: Int) {
                         if (playbackState == Player.STATE_ENDED) {
@@ -73,85 +77,91 @@ class AudioPlayerManager(private val context: Context, private val scope: Corout
                         updateState()
                         if (isPlaying) startProgressUpdates() else stopProgressUpdates()
                     }
+
+                    override fun onPlayerError(error: PlaybackException) {
+                        stopProgressUpdates()
+                        setError(mapError(error), error.message ?: error.errorCodeName)
+                        updateState()
+                    }
                 })
             }
-        }
     }
 
-    fun setPlaylist(tracks: List<Track>, startIndex: Int = 0) {
+    fun refreshPlaylist(tracks: List<Track>) {
         initPlayer()
-        playlist = tracks
-        if (tracks.isEmpty()) {
+        val previousTrackId = _playerState.value.currentTrack?.id
+        val wasPlaying = exoPlayer?.isPlaying == true
+        val snapshot = PlaylistCoordinator.sync(tracks, previousTrackId)
+
+        playlist = snapshot.tracks
+        currentTrackIndex = snapshot.currentIndex
+
+        if (snapshot.currentTrack == null) {
+            loadTrackJob?.cancel()
             currentTrackIndex = -1
             exoPlayer?.stop()
+            exoPlayer?.clearMediaItems()
+            _playerState.value = PlayerState(
+                volume = exoPlayer?.volume ?: _playerState.value.volume,
+                speed = exoPlayer?.playbackParameters?.speed ?: _playerState.value.speed,
+                repeatMode = _playerState.value.repeatMode
+            )
             return
         }
-        currentTrackIndex = startIndex.coerceIn(0, tracks.size - 1)
-        // Prepare the first track without auto-playing — user or SyncEngine will trigger play()
-        prepareTrack(playlist[currentTrackIndex])
-    }
-    
-    /** Loads and prepares a track without starting playback. */
-    fun prepareTrack(track: Track) {
-        initPlayer()
-        scope.launch {
-            val uri = if (track.url.startsWith("synth://")) {
-                getOrGenerateSynthTrack(track)
-            } else {
-                Uri.parse(track.url)
-            }
 
-            withContext(Dispatchers.Main) {
-                exoPlayer?.run {
-                    setMediaItem(MediaItem.fromUri(uri))
-                    prepare()
-                    // No play() call — just prepare
-                }
-                _playerState.value = _playerState.value.copy(currentTrack = track)
-            }
+        val currentTrack = snapshot.currentTrack
+        val trackChanged = previousTrackId != currentTrack.id
+
+        _playerState.value = _playerState.value.copy(
+            currentTrack = currentTrack,
+            errorType = null,
+            errorDetail = null
+        )
+
+        when {
+            trackChanged && wasPlaying -> playTrack(currentTrack, snapshot.tracks)
+            trackChanged -> prepareTrack(currentTrack, snapshot.tracks)
+            exoPlayer?.mediaItemCount == 0 -> prepareTrack(currentTrack, snapshot.tracks)
         }
     }
 
-    /** Loads, prepares, and immediately starts playing a track. */
-    fun playTrack(track: Track) {
+    fun prepareTrack(track: Track, playlistContext: List<Track> = playlist) {
         initPlayer()
-        scope.launch {
-            val uri = if (track.url.startsWith("synth://")) {
-                getOrGenerateSynthTrack(track)
-            } else {
-                Uri.parse(track.url)
-            }
-            
-            withContext(Dispatchers.Main) {
-                exoPlayer?.run {
-                    setMediaItem(MediaItem.fromUri(uri))
-                    prepare()
-                    play()
-                }
-                _playerState.value = _playerState.value.copy(currentTrack = track)
-            }
-        }
+        val snapshot = updateSelection(track, playlistContext)
+        loadTrack(snapshot.currentTrack ?: track, playWhenReady = false)
+    }
+
+    fun playTrack(track: Track, playlistContext: List<Track> = playlist) {
+        initPlayer()
+        val snapshot = updateSelection(track, playlistContext)
+        loadTrack(snapshot.currentTrack ?: track, playWhenReady = true)
     }
 
     fun play() {
         initPlayer()
         val player = exoPlayer ?: return
+        clearError()
+
+        if (playlist.isEmpty()) {
+            setError(PlayerErrorType.NO_TRACKS, null)
+            return
+        }
+
         when {
-            // No media loaded at all — load from playlist and play
-            player.mediaItemCount == 0 && currentTrackIndex >= 0 && playlist.isNotEmpty() -> {
-                playTrack(playlist[currentTrackIndex])
+            player.mediaItemCount == 0 && currentTrackIndex >= 0 -> {
+                playTrack(playlist[currentTrackIndex], playlist)
             }
-            // Media item exists but player wasn't prepared (STATE_IDLE) — prepare then play
+
             player.mediaItemCount > 0 && player.playbackState == Player.STATE_IDLE -> {
                 player.prepare()
                 player.play()
             }
-            // Player is ready or buffering — just play
+
             player.mediaItemCount > 0 -> {
                 player.play()
             }
-            // No playlist, no track — nothing to do
-            else -> Unit
+
+            else -> playTrack(playlist.first(), playlist)
         }
     }
 
@@ -161,19 +171,26 @@ class AudioPlayerManager(private val context: Context, private val scope: Corout
     }
 
     fun next() {
-        if (playlist.isEmpty()) return
-        // Basic next logic, can be enhanced with shuffle/repeat check
-        currentTrackIndex = (currentTrackIndex + 1) % playlist.size
-        playTrack(playlist[currentTrackIndex])
+        if (playlist.isEmpty()) {
+            setError(PlayerErrorType.NO_TRACKS, null)
+            return
+        }
+        val snapshot = PlaylistCoordinator.next(playlist, currentTrackIndex)
+        currentTrackIndex = snapshot.currentIndex
+        playTrack(snapshot.currentTrack ?: return, snapshot.tracks)
     }
 
     fun previous() {
-        if (playlist.isEmpty()) return
+        if (playlist.isEmpty()) {
+            setError(PlayerErrorType.NO_TRACKS, null)
+            return
+        }
         if ((exoPlayer?.currentPosition ?: 0) > 3000) {
             exoPlayer?.seekTo(0)
         } else {
-            currentTrackIndex = if (currentTrackIndex - 1 < 0) playlist.size - 1 else currentTrackIndex - 1
-            playTrack(playlist[currentTrackIndex])
+            val snapshot = PlaylistCoordinator.previous(playlist, currentTrackIndex)
+            currentTrackIndex = snapshot.currentIndex
+            playTrack(snapshot.currentTrack ?: return, snapshot.tracks)
         }
     }
 
@@ -198,8 +215,7 @@ class AudioPlayerManager(private val context: Context, private val scope: Corout
 
     fun toggleRepeatMode() {
         initPlayer()
-        val currentMode = _playerState.value.repeatMode
-        val newMode = when (currentMode) {
+        val newMode = when (_playerState.value.repeatMode) {
             RepeatMode.NONE -> RepeatMode.ALL
             RepeatMode.ALL -> RepeatMode.ONE
             RepeatMode.ONE -> RepeatMode.NONE
@@ -207,20 +223,75 @@ class AudioPlayerManager(private val context: Context, private val scope: Corout
         _playerState.value = _playerState.value.copy(repeatMode = newMode)
     }
 
+    fun release() {
+        loadTrackJob?.cancel()
+        exoPlayer?.release()
+        exoPlayer = null
+        stopProgressUpdates()
+    }
+
+    private fun updateSelection(track: Track, playlistContext: List<Track>): PlaylistSnapshot {
+        val basePlaylist = playlistContext.ifEmpty { playlist }
+        val snapshot = PlaylistCoordinator.select(basePlaylist, track)
+        playlist = snapshot.tracks
+        currentTrackIndex = snapshot.currentIndex
+        _playerState.value = _playerState.value.copy(
+            currentTrack = snapshot.currentTrack ?: track,
+            errorType = null,
+            errorDetail = null
+        )
+        return snapshot
+    }
+
+    private fun loadTrack(track: Track, playWhenReady: Boolean) {
+        loadTrackJob?.cancel()
+        clearError()
+
+        loadTrackJob = scope.launch {
+            try {
+                val uri = resolveTrackUri(track)
+                withContext(Dispatchers.Main) {
+                    exoPlayer?.run {
+                        setMediaItem(MediaItem.fromUri(uri))
+                        prepare()
+                        if (playWhenReady) {
+                            play()
+                        }
+                    }
+                    updateState()
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                withContext(Dispatchers.Main) {
+                    setError(PlayerErrorType.SOURCE_UNAVAILABLE, error.message)
+                }
+            }
+        }
+    }
+
+    private suspend fun resolveTrackUri(track: Track): Uri {
+        return when {
+            track.url.startsWith("synth://") -> getOrGenerateSynthTrack(track)
+            track.url.contains("://") -> Uri.parse(track.url)
+            else -> Uri.fromFile(File(track.url))
+        }
+    }
+
     private fun handleTrackEnd() {
-        val mode = _playerState.value.repeatMode
-        when (mode) {
+        when (_playerState.value.repeatMode) {
             RepeatMode.ONE -> {
                 exoPlayer?.seekTo(0)
                 exoPlayer?.play()
             }
-            RepeatMode.ALL -> {
-                next()
-            }
+
+            RepeatMode.ALL -> next()
+
             RepeatMode.NONE -> {
                 if (currentTrackIndex < playlist.size - 1) {
                     next()
                 } else {
+                    exoPlayer?.seekTo(0)
                     pause()
                 }
             }
@@ -235,8 +306,39 @@ class AudioPlayerManager(private val context: Context, private val scope: Corout
             speed = player.playbackParameters.speed,
             duration = player.duration.coerceAtLeast(0),
             progress = player.currentPosition,
-            repeatMode = _playerState.value.repeatMode
+            repeatMode = _playerState.value.repeatMode,
+            errorType = _playerState.value.errorType,
+            errorDetail = _playerState.value.errorDetail
         )
+    }
+
+    private fun clearError() {
+        _playerState.value = _playerState.value.copy(
+            errorType = null,
+            errorDetail = null
+        )
+    }
+
+    private fun setError(type: PlayerErrorType, detail: String?) {
+        _playerState.value = _playerState.value.copy(
+            isPlaying = false,
+            errorType = type,
+            errorDetail = detail
+        )
+    }
+
+    private fun mapError(error: PlaybackException): PlayerErrorType {
+        return when (error.errorCode) {
+            PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND,
+            PlaybackException.ERROR_CODE_IO_NO_PERMISSION -> PlayerErrorType.SOURCE_UNAVAILABLE
+
+            PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED,
+            PlaybackException.ERROR_CODE_PARSING_MANIFEST_UNSUPPORTED,
+            PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
+            PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES -> PlayerErrorType.UNSUPPORTED_FORMAT
+
+            else -> PlayerErrorType.PLAYBACK_FAILED
+        }
     }
 
     private fun startProgressUpdates() {
@@ -253,17 +355,10 @@ class AudioPlayerManager(private val context: Context, private val scope: Corout
         progressJob?.cancel()
     }
 
-    fun release() {
-        exoPlayer?.release()
-        exoPlayer = null
-        stopProgressUpdates()
-    }
-
-    // --- Synthesis Logic ---
     private suspend fun getOrGenerateSynthTrack(track: Track): Uri = withContext(Dispatchers.IO) {
         val filename = "${track.id}.wav"
         val file = File(context.cacheDir, filename)
-        
+
         if (!file.exists()) {
             generateWavFile(file, track)
         }
@@ -276,30 +371,24 @@ class AudioPlayerManager(private val context: Context, private val scope: Corout
         val numSamples = (durationSec * sampleRate).toInt()
         val numChannels = 1
         val bitsPerSample = 16
-        
-        // Frequencies based on track ID hash or index
         val baseFreq = 220.0 + (track.id.hashCode() % 10) * 30.0
-        
+
         val bufferSize = numSamples * numChannels * (bitsPerSample / 8)
         val audioData = ByteArray(bufferSize)
         val buffer = ByteBuffer.wrap(audioData).order(ByteOrder.LITTLE_ENDIAN)
 
         for (i in 0 until numSamples) {
             val t = i.toDouble() / sampleRate
-            
-            // Envelope (Fade in/out 4s)
             val fadeIn = (t / 4.0).coerceAtMost(1.0)
             val fadeOut = ((durationSec - t) / 4.0).coerceAtMost(1.0)
             val envelope = fadeIn * fadeOut
 
-            // 3 Sine waves
             val w1 = sin(2.0 * Math.PI * baseFreq * t) * 0.4
             val w2 = sin(2.0 * Math.PI * (baseFreq * 1.5) * t) * 0.2
             val w3 = sin(2.0 * Math.PI * (baseFreq / 2.0) * t) * 0.2
-            
+
             val signal = (w1 + w2 + w3) * envelope
             val value = (signal * 32767).toInt().coerceIn(-32768, 32767).toShort()
-            
             buffer.putShort(value)
         }
 
@@ -309,7 +398,13 @@ class AudioPlayerManager(private val context: Context, private val scope: Corout
         }
     }
 
-    private fun writeWavHeader(fos: FileOutputStream, sampleRate: Int, bitsPerSample: Short, channels: Short, numSamples: Int) {
+    private fun writeWavHeader(
+        fos: FileOutputStream,
+        sampleRate: Int,
+        bitsPerSample: Short,
+        channels: Short,
+        numSamples: Int
+    ) {
         val byteRate = sampleRate * channels * bitsPerSample / 8
         val blockAlign = (channels * bitsPerSample / 8).toShort()
         val dataSize = numSamples * channels * bitsPerSample / 8
@@ -320,8 +415,8 @@ class AudioPlayerManager(private val context: Context, private val scope: Corout
         header.putInt(chunkSize)
         header.put("WAVE".toByteArray())
         header.put("fmt ".toByteArray())
-        header.putInt(16) // Subchunk1Size for PCM
-        header.putShort(1) // AudioFormat 1 = PCM
+        header.putInt(16)
+        header.putShort(1)
         header.putShort(channels)
         header.putInt(sampleRate)
         header.putInt(byteRate)
@@ -333,6 +428,3 @@ class AudioPlayerManager(private val context: Context, private val scope: Corout
         fos.write(header.array())
     }
 }
-
-
-

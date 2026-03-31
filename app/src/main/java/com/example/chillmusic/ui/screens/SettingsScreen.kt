@@ -1,6 +1,7 @@
 package com.example.chillmusic.ui.screens
 
 import android.Manifest
+import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -36,6 +37,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -44,13 +48,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.chillmusic.data.model.StopBehavior
 import com.example.chillmusic.ui.MainViewModel
+import com.example.chillmusic.ui.MotionPermissionPolicy
 import com.example.chillmusic.ui.theme.ButtonGray
 import com.example.chillmusic.ui.theme.NetflixRed
-import com.google.accompanist.permissions.ExperimentalPermissionsApi
-import com.google.accompanist.permissions.rememberMultiplePermissionsState
-import com.google.accompanist.permissions.isGranted
-
 import com.example.chillmusic.ui.utils.Translation
+import com.google.accompanist.permissions.ExperimentalPermissionsApi
+import com.google.accompanist.permissions.isGranted
+import com.google.accompanist.permissions.rememberMultiplePermissionsState
 
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
@@ -58,26 +62,41 @@ fun SettingsScreen(viewModel: MainViewModel) {
     val uiState by viewModel.uiState.collectAsState()
     val motionSettings = uiState.settings.motion
     val lang = uiState.settings.language
+    var pendingEnable by remember { mutableStateOf(false) }
 
-    // Permission handling using Accompanist
     val permissionsState = rememberMultiplePermissionsState(
         permissions = listOf(
             Manifest.permission.ACCESS_FINE_LOCATION,
             Manifest.permission.ACCESS_COARSE_LOCATION,
-            "android.permission.ACTIVITY_RECOGNITION"
+            Manifest.permission.ACTIVITY_RECOGNITION
         )
     )
-    
-    // Update VM with permission status
-    LaunchedEffect(permissionsState.allPermissionsGranted) {
-        val motionPermissionGranted = permissionsState.permissions.any { 
-            it.permission == "android.permission.ACTIVITY_RECOGNITION" && it.status.isGranted 
-        } || android.os.Build.VERSION.SDK_INT < 29 // Android 10+ needs explicit permission
-        
+
+    val grants = permissionsState.permissions.associate { permissionState ->
+        permissionState.permission to permissionState.status.isGranted
+    }
+    val permissionStatus = MotionPermissionPolicy.resolve(grants, Build.VERSION.SDK_INT)
+
+    LaunchedEffect(permissionStatus.motionGranted, permissionStatus.locationGranted) {
         viewModel.updatePermissionsStatus(
-            motion = motionPermissionGranted,
-            location = permissionsState.allPermissionsGranted
+            motion = permissionStatus.motionGranted,
+            location = permissionStatus.locationGranted
         )
+    }
+
+    LaunchedEffect(permissionStatus.allGranted, pendingEnable) {
+        if (pendingEnable) {
+            if (permissionStatus.allGranted) {
+                viewModel.toggleMotionDetection(true)
+            }
+            pendingEnable = false
+        }
+    }
+
+    LaunchedEffect(permissionStatus.allGranted, motionSettings.enabled) {
+        if (motionSettings.enabled && !permissionStatus.allGranted) {
+            viewModel.toggleMotionDetection(false)
+        }
     }
 
     Column(
@@ -88,7 +107,7 @@ fun SettingsScreen(viewModel: MainViewModel) {
             .padding(bottom = 80.dp)
     ) {
         Spacer(modifier = Modifier.height(32.dp))
-        
+
         Text(
             text = Translation.getString("settings", lang),
             style = MaterialTheme.typography.titleLarge,
@@ -98,7 +117,6 @@ fun SettingsScreen(viewModel: MainViewModel) {
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // Language
         SectionTitle(Translation.getString("language", lang))
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             LanguageButton(
@@ -115,23 +133,35 @@ fun SettingsScreen(viewModel: MainViewModel) {
 
         Spacer(modifier = Modifier.height(32.dp))
 
-        // Running Mode
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column {
-                Text(Translation.getString("running_mode", lang), color = Color.White, fontWeight = FontWeight.Bold)
-                Text(Translation.getString("play_only_moving", lang), color = Color.Gray, style = MaterialTheme.typography.bodySmall)
+                Text(
+                    Translation.getString("running_mode", lang),
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    Translation.getString("play_only_moving", lang),
+                    color = Color.Gray,
+                    style = MaterialTheme.typography.bodySmall
+                )
             }
             Switch(
                 checked = motionSettings.enabled,
-                onCheckedChange = { 
-                    if (it && !permissionsState.allPermissionsGranted) {
+                onCheckedChange = { enable ->
+                    if (!enable) {
+                        pendingEnable = false
+                        viewModel.toggleMotionDetection(false)
+                    } else if (permissionStatus.allGranted) {
+                        viewModel.toggleMotionDetection(true)
+                    } else {
+                        pendingEnable = true
                         permissionsState.launchMultiplePermissionRequest()
                     }
-                    viewModel.toggleMotionDetection(it) 
                 },
                 colors = SwitchDefaults.colors(
                     checkedThumbColor = NetflixRed,
@@ -144,8 +174,7 @@ fun SettingsScreen(viewModel: MainViewModel) {
 
         if (motionSettings.enabled) {
             Spacer(modifier = Modifier.height(24.dp))
-            
-            // Auto Playback
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -154,7 +183,9 @@ fun SettingsScreen(viewModel: MainViewModel) {
                 Text(Translation.getString("auto_playback", lang), color = Color.White)
                 Switch(
                     checked = motionSettings.autoPlayEnabled,
-                    onCheckedChange = { viewModel.updateMotionSettings(motionSettings.copy(autoPlayEnabled = it)) },
+                    onCheckedChange = {
+                        viewModel.updateMotionSettings(motionSettings.copy(autoPlayEnabled = it))
+                    },
                     colors = SwitchDefaults.colors(
                         checkedThumbColor = NetflixRed,
                         checkedTrackColor = ButtonGray,
@@ -163,8 +194,7 @@ fun SettingsScreen(viewModel: MainViewModel) {
                     )
                 )
             }
-            
-            // Speed Sync
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -173,7 +203,9 @@ fun SettingsScreen(viewModel: MainViewModel) {
                 Text(Translation.getString("speed_sync", lang), color = Color.White)
                 Switch(
                     checked = motionSettings.syncSpeedEnabled,
-                    onCheckedChange = { viewModel.updateMotionSettings(motionSettings.copy(syncSpeedEnabled = it)) },
+                    onCheckedChange = {
+                        viewModel.updateMotionSettings(motionSettings.copy(syncSpeedEnabled = it))
+                    },
                     colors = SwitchDefaults.colors(
                         checkedThumbColor = NetflixRed,
                         checkedTrackColor = ButtonGray,
@@ -188,7 +220,9 @@ fun SettingsScreen(viewModel: MainViewModel) {
                 Text(Translation.getString("sync_intensity", lang), color = Color.White)
                 Slider(
                     value = motionSettings.syncIntensity,
-                    onValueChange = { viewModel.updateMotionSettings(motionSettings.copy(syncIntensity = it)) },
+                    onValueChange = {
+                        viewModel.updateMotionSettings(motionSettings.copy(syncIntensity = it))
+                    },
                     valueRange = 0f..1f,
                     colors = SliderDefaults.colors(
                         thumbColor = NetflixRed,
@@ -199,12 +233,13 @@ fun SettingsScreen(viewModel: MainViewModel) {
             }
 
             Spacer(modifier = Modifier.height(24.dp))
-            
-            // Sensitivity
+
             Text(Translation.getString("sensitivity", lang), color = Color.White)
             Slider(
                 value = motionSettings.sensitivity.toFloat(),
-                onValueChange = { viewModel.updateMotionSettings(motionSettings.copy(sensitivity = it.toInt())) },
+                onValueChange = {
+                    viewModel.updateMotionSettings(motionSettings.copy(sensitivity = it.toInt()))
+                },
                 valueRange = 1f..10f,
                 steps = 9,
                 colors = SliderDefaults.colors(
@@ -217,44 +252,64 @@ fun SettingsScreen(viewModel: MainViewModel) {
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text(Translation.getString("less_sensitive", lang), color = Color.Gray, style = MaterialTheme.typography.labelSmall)
-                Text(Translation.getString("more_sensitive", lang), color = Color.Gray, style = MaterialTheme.typography.labelSmall)
+                Text(
+                    Translation.getString("less_sensitive", lang),
+                    color = Color.Gray,
+                    style = MaterialTheme.typography.labelSmall
+                )
+                Text(
+                    Translation.getString("more_sensitive", lang),
+                    color = Color.Gray,
+                    style = MaterialTheme.typography.labelSmall
+                )
             }
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Stop Behavior
             Text(Translation.getString("when_stop_moving", lang), color = Color.White)
             Spacer(modifier = Modifier.height(8.dp))
-            
+
             RadioOption(
                 text = Translation.getString("pause_music", lang),
                 subtext = Translation.getString("resume_moving", lang),
                 selected = motionSettings.stopBehavior == StopBehavior.PAUSE,
-                onClick = { viewModel.updateMotionSettings(motionSettings.copy(stopBehavior = StopBehavior.PAUSE)) }
+                onClick = {
+                    viewModel.updateMotionSettings(motionSettings.copy(stopBehavior = StopBehavior.PAUSE))
+                }
             )
             RadioOption(
                 text = Translation.getString("lower_volume", lang),
                 subtext = Translation.getString("reduce_30", lang),
                 selected = motionSettings.stopBehavior == StopBehavior.LOWER_VOLUME,
-                onClick = { viewModel.updateMotionSettings(motionSettings.copy(stopBehavior = StopBehavior.LOWER_VOLUME)) }
+                onClick = {
+                    viewModel.updateMotionSettings(motionSettings.copy(stopBehavior = StopBehavior.LOWER_VOLUME))
+                }
             )
             RadioOption(
                 text = Translation.getString("skip_next", lang),
                 subtext = Translation.getString("change_song_pause", lang),
                 selected = motionSettings.stopBehavior == StopBehavior.NEXT_TRACK,
-                onClick = { viewModel.updateMotionSettings(motionSettings.copy(stopBehavior = StopBehavior.NEXT_TRACK)) }
+                onClick = {
+                    viewModel.updateMotionSettings(motionSettings.copy(stopBehavior = StopBehavior.NEXT_TRACK))
+                }
             )
         }
 
         Spacer(modifier = Modifier.height(32.dp))
 
-        // Permissions Status
         SectionTitle(Translation.getString("permissions", lang))
-        PermissionItem(Translation.getString("motion_sensors", lang), true, lang) // Assuming always available or implied
-        PermissionItem(Translation.getString("location", lang), permissionsState.allPermissionsGranted, lang)
-        
-        if (!permissionsState.allPermissionsGranted) {
+        PermissionItem(
+            Translation.getString("motion_sensors", lang),
+            permissionStatus.motionGranted,
+            lang
+        )
+        PermissionItem(
+            Translation.getString("location", lang),
+            permissionStatus.locationGranted,
+            lang
+        )
+
+        if (!permissionStatus.allGranted) {
             Spacer(modifier = Modifier.height(8.dp))
             Button(
                 onClick = { permissionsState.launchMultiplePermissionRequest() },
@@ -267,18 +322,22 @@ fun SettingsScreen(viewModel: MainViewModel) {
 }
 
 @Composable
-fun SectionTitle(text: String) {
+private fun SectionTitle(text: String) {
     Text(text, color = Color.Gray, style = MaterialTheme.typography.labelSmall)
     Spacer(modifier = Modifier.height(8.dp))
 }
 
 @Composable
-fun LanguageButton(text: String, selected: Boolean, onClick: () -> Unit) {
+private fun LanguageButton(text: String, selected: Boolean, onClick: () -> Unit) {
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(8.dp))
             .background(if (selected) NetflixRed.copy(alpha = 0.1f) else ButtonGray)
-            .border(1.dp, if (selected) NetflixRed.copy(alpha = 0.3f) else Color.Transparent, RoundedCornerShape(8.dp))
+            .border(
+                1.dp,
+                if (selected) NetflixRed.copy(alpha = 0.3f) else Color.Transparent,
+                RoundedCornerShape(8.dp)
+            )
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 8.dp)
     ) {
@@ -291,7 +350,7 @@ fun LanguageButton(text: String, selected: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-fun RadioOption(text: String, subtext: String, selected: Boolean, onClick: () -> Unit) {
+private fun RadioOption(text: String, subtext: String, selected: Boolean, onClick: () -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -313,7 +372,7 @@ fun RadioOption(text: String, subtext: String, selected: Boolean, onClick: () ->
 }
 
 @Composable
-fun PermissionItem(name: String, granted: Boolean, lang: String) {
+private fun PermissionItem(name: String, granted: Boolean, lang: String) {
     Row(
         modifier = Modifier
             .fillMaxWidth()

@@ -1,0 +1,602 @@
+AUDITORIA FINAL
+Proyecto: C:\Users\Maykel\Desktop\ProyectosMX\Music+Running
+Fecha: 2026-03-31
+Tipo de auditoria: estatica profunda + simulacion de flujos + validacion parcial del entorno local
+
+======================================================================
+1. RESUMEN EJECUTIVO
+======================================================================
+
+Riesgo general del proyecto: ALTO.
+
+Conclusion corta:
+- La app tiene varios defectos estructurales que explican muy bien los sintomas reportados:
+  1. musica importada que deja de reproducirse despues de cerrar/reabrir;
+  2. reproduccion erratica al cambiar de cancion o avanzar/saltar;
+  3. deteccion de movimiento falsa o inestable;
+  4. servicio que se cae al remover la app de recientes;
+  5. flujo de permisos que deja funciones "activadas" aunque no tengan permisos reales;
+  6. ausencia casi total de telemetria y manejo visible de errores, por lo que el usuario solo ve "no da play".
+
+Mis hallazgos mas importantes:
+- P0: la importacion de audio no es persistente de forma confiable tras matar el proceso.
+- P0: la cola del reproductor pierde sincronizacion con la pista seleccionada.
+- P1: el detector de pasos puede contar doble y disparar estados falsos de WALKING/RUNNING.
+- P1: quitar la app de recientes detiene servicio, sensores y reproductor de forma agresiva.
+- P1: el estado de permisos y el toggle de running mode son inconsistentes y pueden dejar el modo "encendido" sin permisos.
+- P1: no existe manejo de errores del reproductor para exponer por que una pista fallo.
+- P1: la libreria "Chill Music" real no existe en la implementacion activa; el catalogo usado por la app esta vacio.
+
+Resultado practico:
+- La app puede parecer funcional en sesiones cortas y romperse justo en los escenarios reales: cambiar de pista, correr con sensores, cerrar y volver a abrir, o usar archivos importados desde picker.
+
+======================================================================
+2. METODOLOGIA
+======================================================================
+
+Revise:
+- Manifest, Activity, Application, Service.
+- Audio engine, sync engine, detector de movimiento, repositorios y UI.
+- Flujo completo de importacion, persistencia, reproduccion y reanudacion.
+- Pipeline de permisos, sensores, GPS, estado y lifecycle.
+- CI, presencia de tests y capacidad de build local.
+
+Tecnicas usadas:
+- Lectura completa de codigo fuente.
+- Trazado manual de escenarios criticos paso a paso.
+- Verificacion de artefactos locales de build.
+- Revision del workflow de GitHub Actions.
+- Comprobacion del entorno local disponible para compilar/simular.
+
+======================================================================
+3. LIMITES REALES DE LA VERIFICACION
+======================================================================
+
+Pude validar directamente:
+- Estructura del proyecto.
+- Codigo fuente completo de la app.
+- Workflow de CI.
+- Reporte local de problemas de Gradle existente en build/reports/problems/problems-report.html.
+
+No pude validar en ejecucion real porque el entorno local no lo permite en este momento:
+- El repo NO incluye gradlew / gradlew.bat.
+- En este entorno NO existe el comando gradle instalado.
+- En este entorno NO existe adb.
+- En este entorno NO existe emulator.
+- No hay APK/AAB generado dentro del repo.
+- No existen tests unitarios ni instrumentados en el arbol de codigo.
+
+Implicacion:
+- Esta auditoria es muy fuerte a nivel de causas raiz de codigo, pero NO sustituye una corrida final en dispositivo/emulador.
+
+======================================================================
+4. HALLAZGOS CRITICOS Y ALTOS
+======================================================================
+
+P0-1. IMPORTACION DE MUSICA NO PERSISTE BIEN DESPUES DE CERRAR/REABRIR
+Severidad: CRITICA
+
+Evidencia:
+- app/src/main/java/com/example/chillmusic/ui/screens/LibraryScreen.kt:63-66
+- app/src/main/java/com/example/chillmusic/data/repository/MusicRepository.kt:34-61
+
+Que pasa:
+- La UI usa ActivityResultContracts.GetMultipleContents.
+- El repositorio guarda el content:// uri tal como viene y solo intenta tomar permiso persistente.
+- Si takePersistableUriPermission falla, la app lo ignora y aun asi guarda la pista.
+
+Causa raiz:
+- GetMultipleContents no garantiza persistencia durable del permiso para reusar ese URI tras matar proceso o reiniciar.
+- La app no copia el archivo al almacenamiento propio de la app.
+- La app no cambia a un contrato documental persistente.
+
+Impacto:
+- La pista puede reproducir en la misma sesion y fallar despues.
+- Esto encaja muy bien con "no le da play a la musica" y "la cierro y luego falla".
+
+Simulacion profunda:
+1. El usuario importa MP3 desde Files, Google Drive, Telegram o WhatsApp.
+2. La app recibe un content:// temporal.
+3. La app guarda uri.toString() en user_tracks.json.
+4. El usuario cierra la app o Android mata el proceso.
+5. La app vuelve a cargar el mismo content:// guardado.
+6. El provider ya no concede acceso de lectura.
+7. ExoPlayer intenta leer y falla.
+8. Como no hay onPlayerError expuesto al usuario, la sensacion es "no reproduce" sin explicacion.
+
+Prioridad de arreglo:
+- Maxima. Este es uno de los candidatos mas fuertes para explicar fallos masivos de reproduccion post-cierre.
+
+
+P0-2. LA COLA DEL REPRODUCTOR SE DESINCRONIZA DE LA CANCION QUE EL USUARIO TOCA
+Severidad: CRITICA
+
+Evidencia:
+- app/src/main/java/com/example/chillmusic/logic/audio/AudioPlayerManager.kt:40-41
+- app/src/main/java/com/example/chillmusic/logic/audio/AudioPlayerManager.kt:81-92
+- app/src/main/java/com/example/chillmusic/logic/audio/AudioPlayerManager.kt:116-133
+- app/src/main/java/com/example/chillmusic/logic/audio/AudioPlayerManager.kt:163-176
+- app/src/main/java/com/example/chillmusic/logic/audio/AudioPlayerManager.kt:210-227
+- app/src/main/java/com/example/chillmusic/ui/MainViewModel.kt:113-115
+
+Que pasa:
+- playTrack(track) reproduce la pista tocada.
+- Pero NO actualiza currentTrackIndex ni reubica la playlist sobre esa pista.
+- next(), previous() y handleTrackEnd() siguen trabajando con el indice viejo.
+
+Impacto:
+- Siguiente/anterior pueden llevar a canciones incorrectas.
+- Al terminar una cancion elegida manualmente, puede brincar a otra inesperada.
+- El usuario percibe que el player esta "loco", se salta o no respeta la cola.
+
+Simulacion profunda:
+1. Playlist interna: [A, B, C].
+2. setPlaylist() deja currentTrackIndex = 0.
+3. El usuario toca C desde la libreria.
+4. currentTrack pasa a C, pero currentTrackIndex sigue en 0.
+5. Al pulsar next(), el codigo hace index = 1 y reproduce B.
+6. Al terminar C con Repeat.NONE, handleTrackEnd cree que aun estaba en el indice 0 y la logica posterior queda corrupta.
+
+Prioridad de arreglo:
+- Maxima. Esto afecta la experiencia de playback basica y genera errores aparentemente "aleatorios".
+
+
+P1-3. DOBLE CONTEO DE PASOS / MOVIMIENTO FALSO POR FALLBACK DE ACELEROMETRO SIEMPRE ACTIVO
+Severidad: ALTA
+
+Evidencia:
+- app/src/main/java/com/example/chillmusic/logic/sensor/MotionDetector.kt:122-145
+- app/src/main/java/com/example/chillmusic/logic/sensor/MotionDetector.kt:149-169
+- app/src/main/java/com/example/chillmusic/logic/sensor/MotionDetector.kt:176-191
+
+Que pasa:
+- El comentario dice que el acelerometro es "fallback" si el step detector esta silencioso.
+- Pero detectStepFromAccelerometer() se ejecuta SIEMPRE.
+- Cuando llega un evento real del Sensor.TYPE_STEP_DETECTOR, la bandera isAccelerometerStepDetectorActive se pone en false, pero esa bandera nunca se usa para bloquear el fallback.
+
+Impacto:
+- Pasos inflados.
+- Cadencia inflada.
+- Falsos WALKING/RUNNING.
+- Auto play, pause y sync speed disparados cuando no deben.
+- Conteo diario de pasos contaminado.
+
+Simulacion profunda:
+1. Un telefono con hardware step detector reporta pasos reales.
+2. Al mismo tiempo, el acelerometro sigue detectando picos.
+3. registerStep() se invoca por ambos caminos.
+4. stepCadence sube de forma artificial.
+5. evaluateMotion() cambia a WALKING/RUNNING antes de tiempo.
+6. SyncEngine acelera, reproduce o pausa musica basado en un estado falso.
+
+Prioridad de arreglo:
+- Muy alta. Este hallazgo puede explicar "miles de errores" de sincronizacion aparentemente dificiles de rastrear.
+
+
+P1-4. REMOVER LA APP DE RECIENTES MATA SERVICIO, PLAYER Y SENSORES
+Severidad: ALTA
+
+Evidencia:
+- app/src/main/java/com/example/chillmusic/service/MusicService.kt:27-30
+- app/src/main/java/com/example/chillmusic/service/MusicService.kt:37-49
+
+Que pasa:
+- onTaskRemoved() pausa y llama stopSelf() siempre.
+- onDestroy() detiene motionDetector y libera audioPlayerManager.
+
+Impacto:
+- Si el usuario limpia recientes mientras corre, la experiencia en segundo plano muere.
+- Si el objetivo era mantener sincronizacion o playback, el comportamiento actual lo rompe.
+
+Observacion importante:
+- El archivo music_app_sync_fix.md afirma que esto ya habia sido corregido, pero el codigo actual NO refleja esa promesa.
+- Eso sugiere regresion o documentacion desactualizada.
+
+Simulacion profunda:
+1. Usuario empieza a correr con running mode.
+2. Usuario saca la app de recientes.
+3. onTaskRemoved() pausa y hace stopSelf().
+4. onDestroy() mata sensores y reproductor.
+5. El sistema queda sin tracking ni playback aunque el usuario siga moviendose.
+
+Prioridad de arreglo:
+- Muy alta.
+
+
+P1-5. FLUJO DE PERMISOS ROTO: LA UI PUEDE "ENCENDER" RUNNING MODE SIN TENER PERMISOS REALES
+Severidad: ALTA
+
+Evidencia:
+- app/src/main/java/com/example/chillmusic/ui/screens/SettingsScreen.kt:72-80
+- app/src/main/java/com/example/chillmusic/ui/screens/SettingsScreen.kt:129-135
+- app/src/main/java/com/example/chillmusic/ui/screens/SettingsScreen.kt:254-255
+- app/src/main/java/com/example/chillmusic/ui/MainViewModel.kt:126-137
+- app/src/main/java/com/example/chillmusic/ui/MainViewModel.kt:149-156
+- app/src/main/java/com/example/chillmusic/ui/components/MotionIndicator.kt:40-45
+
+Que pasa:
+- Si el usuario prende el switch, primero se lanza la solicitud de permisos, PERO tambien se ejecuta viewModel.toggleMotionDetection(it) de inmediato.
+- O sea: la configuracion puede quedar enabled=true aunque el permiso sea negado.
+- El estado de permisos de ubicacion usa permissionsState.allPermissionsGranted, que mezcla ubicacion y ACTIVITY_RECOGNITION.
+- La pantalla de ajustes marca "motion sensors" como granted = true siempre.
+- HomeScreen pasa permissionsGranted al MotionIndicator, pero MotionIndicator ni siquiera usa ese parametro.
+
+Impacto:
+- El usuario cree que activo el modo correr, pero el detector puede no tener permisos validos.
+- La UI informa estados falsos y dificulta diagnosticar por que la musica no arranca al moverse.
+
+Simulacion profunda:
+1. Usuario entra a Ajustes y activa Running Mode.
+2. Sale popup de permisos.
+3. Usuario niega Activity Recognition.
+4. El setting queda enabled=true.
+5. La UI sugiere que el modo esta activo.
+6. MotionDetector puede fallar silenciosamente o quedarse sin transiciones utiles.
+7. El usuario concluye "la app no sirve" en lugar de ver un error claro de permisos.
+
+Prioridad de arreglo:
+- Muy alta.
+
+
+P1-6. NO HAY MANEJO DE ERROR DEL PLAYER, ASI QUE LOS FALLOS DE AUDIO SON SILENCIOSOS
+Severidad: ALTA
+
+Evidencia:
+- app/src/main/java/com/example/chillmusic/logic/audio/AudioPlayerManager.kt:64-76
+
+Que falta:
+- No existe onPlayerError.
+- No existe estado de error en PlayerState.
+- No existe mensaje UI para pistas inaccesibles, corruptas, sin codec o con permiso perdido.
+
+Impacto:
+- Ante cualquier fallo real del archivo, el usuario solo ve que no suena nada.
+- Esto agrava todos los otros bugs, porque los vuelve invisibles.
+
+Simulacion profunda:
+1. Se intenta reproducir un archivo inaccesible o dañado.
+2. ExoPlayer falla.
+3. La UI no recibe ni muestra causa util.
+4. El usuario repite play/pause, cierra, reabre y el problema parece azaroso.
+
+Prioridad de arreglo:
+- Muy alta.
+
+
+P1-7. EL CATALOGO REAL DE "CHILL MUSIC" ESTA VACIO EN LA IMPLEMENTACION ACTIVA
+Severidad: ALTA
+
+Evidencia:
+- app/src/main/java/com/example/chillmusic/data/repository/MusicRepository.kt:20
+- app/src/main/java/com/example/chillmusic/ui/MainViewModel.kt:87-97
+- app/src/main/java/com/example/chillmusic/ui/components/PlayerControls.kt:145-151
+- app/src/main/java/com/example/chillmusic/data/MusicRepository.kt:20-37
+
+Que pasa:
+- El repositorio que usa la app tiene catalog = emptyList().
+- La pestaña "Chill Music" existe en UI, pero la implementacion activa no entrega pistas.
+- Existe otro MusicRepository viejo con placeholders y Uri.EMPTY, pero no es el que la app usa.
+
+Impacto:
+- Instalacion fresca = sin musica lista para reproducir.
+- El modo manual depende de que el usuario importe pistas.
+- El modo auto-play por movimiento no tiene con que empezar en una app recien instalada.
+
+Simulacion profunda:
+1. Usuario instala la app esperando "correr + musica chill".
+2. Abre libreria "Chill Music".
+3. Ve 0 pistas.
+4. En Home el boton play esta inerte si no hay currentTrack.
+5. Si tambien activa running mode, SyncEngine no puede iniciar nada sin pista seleccionada.
+
+Prioridad de arreglo:
+- Alta. Esto golpea el caso de uso principal del producto.
+
+======================================================================
+5. HALLAZGOS MEDIOS
+======================================================================
+
+P2-8. SyncEngine REEVALUA Y REESCRIBE LA VELOCIDAD DEMASIADO A MENUDO
+Severidad: MEDIA
+
+Evidencia:
+- app/src/main/java/com/example/chillmusic/logic/sync/SyncEngine.kt:27-31
+- app/src/main/java/com/example/chillmusic/logic/sync/SyncEngine.kt:54-58
+- app/src/main/java/com/example/chillmusic/logic/audio/AudioPlayerManager.kt:242-249
+
+Que pasa:
+- SyncEngine combina audioManager.playerState completo.
+- playerState emite progreso cada 500 ms.
+- Eso provoca reevaluaciones frecuentes de handleSpeedSync().
+- Aunque la cadencia no cambie, la velocidad puede reescribirse una y otra vez.
+
+Impacto:
+- Trabajo innecesario.
+- Riesgo de micro-cortes, jitter o consumo extra.
+- Dificulta razonar el comportamiento del audio.
+
+
+P2-9. EL VOLUMEN SE "RESTAURA" A 0.8 AUNQUE EL USUARIO NUNCA HAYA ELEGIDO ESE VALOR
+Severidad: MEDIA
+
+Evidencia:
+- app/src/main/java/com/example/chillmusic/logic/sync/SyncEngine.kt:21-23
+- app/src/main/java/com/example/chillmusic/logic/sync/SyncEngine.kt:71-77
+- app/src/main/java/com/example/chillmusic/logic/sync/SyncEngine.kt:95-97
+
+Que pasa:
+- storedVolume inicia en 0.8f.
+- Al detectar movimiento, el codigo siempre intenta restaurar storedVolume si es > 0.
+- Eso puede pisar el volumen real elegido por el usuario.
+
+Impacto:
+- El usuario siente que el volumen "se mueve solo".
+
+
+P2-10. loadTracks() RESETEA LA PLAYLIST Y PREPARA LA PRIMERA PISTA EN RELOADS DE LIBRERIA
+Severidad: MEDIA
+
+Evidencia:
+- app/src/main/java/com/example/chillmusic/ui/MainViewModel.kt:87-97
+- app/src/main/java/com/example/chillmusic/ui/MainViewModel.kt:159-185
+
+Que pasa:
+- Cada add/remove recarga catalog + userTracks.
+- Luego llama audioManager.setPlaylist(catalog + userTracks).
+- setPlaylist() prepara la primera pista.
+
+Impacto:
+- Puede interrumpir o desorientar la sesion actual.
+- El currentTrack puede desplazarse sin que el usuario lo entienda.
+
+
+P2-11. evaluateMotion() LANZA UNA COROUTINE NUEVA POR EVENTO DE SENSOR/GPS
+Severidad: MEDIA
+
+Evidencia:
+- app/src/main/java/com/example/chillmusic/logic/sensor/MotionDetector.kt:140
+- app/src/main/java/com/example/chillmusic/logic/sensor/MotionDetector.kt:201
+- app/src/main/java/com/example/chillmusic/logic/sensor/MotionDetector.kt:207-242
+
+Que pasa:
+- Cada cambio de acelerometro y GPS llama evaluateMotion().
+- evaluateMotion() hace scope.launch(Dispatchers.Default) cada vez.
+
+Impacto:
+- Posible presion innecesaria de coroutines.
+- Actualizaciones fuera de orden bajo alta frecuencia.
+- Mas ruido en un modulo que ya es sensible a falsos positivos.
+
+
+P2-12. BUILD LOCAL NO ES REPRODUCIBLE DESDE EL REPO
+Severidad: MEDIA
+
+Evidencia:
+- No existe gradlew / gradlew.bat en la raiz del proyecto.
+- El workflow usa gradle del runner y solo hace assembleDebug:
+  .github/workflows/android.yml:17-29
+
+Impacto:
+- No pude compilar localmente desde este entorno.
+- Cualquier desarrollador depende de tener Gradle correcto instalado por fuera.
+- Esto complica reproducir errores y auditar regresiones rapido.
+
+Observacion:
+- El workflow SI intenta compilar en CI, pero no ejecuta lint, unit tests ni instrumented tests.
+
+======================================================================
+6. HALLAZGOS BAJOS / DE MANTENIMIENTO
+======================================================================
+
+P3-13. CODIGO DUPLICADO / HUERFANO QUE CONFUNDE EL ESTADO REAL DEL PROYECTO
+Severidad: BAJA
+
+Evidencia:
+- app/src/main/java/com/example/chillmusic/data/MusicRepository.kt
+- app/src/main/java/com/example/chillmusic/data/MotionRepository.kt
+- app/src/main/java/com/example/chillmusic/data/repository/MusicRepository.kt
+
+Que pasa:
+- Hay repositorios viejos que no son la implementacion activa.
+- Uno contiene placeholders con Uri.EMPTY.
+- Esto aumenta el riesgo de que el equipo crea que existe musica de catalogo cuando en realidad no.
+
+
+P3-14. STRINGS CON PROBLEMAS DE ENCODING
+Severidad: BAJA
+
+Evidencia:
+- app/src/main/java/com/example/chillmusic/ui/utils/Translation.kt:13
+- app/src/main/java/com/example/chillmusic/ui/utils/Translation.kt:56-95
+
+Impacto:
+- Textos como "Musica", "Español", "Deteccion" aparecen corruptos.
+- No rompe playback, pero da sensacion de app inestable o poco pulida.
+
+
+P3-15. PERMISOS DECLARADOS PERO NO OPERADOS DE FORMA CONSISTENTE
+Severidad: BAJA
+
+Evidencia:
+- app/src/main/AndroidManifest.xml:9
+- app/src/main/AndroidManifest.xml:13-15
+- app/src/main/java/com/example/chillmusic/ui/screens/SettingsScreen.kt:63-69
+
+Que pasa:
+- El manifest declara POST_NOTIFICATIONS y READ_MEDIA_AUDIO/READ_EXTERNAL_STORAGE.
+- La UI de permisos no cubre todos esos permisos.
+- Hay mezcla entre feature viva, feature antigua y feature incompleta.
+
+Impacto:
+- Mayor complejidad operativa y mayor confusion diagnostica.
+
+======================================================================
+7. SIMULACIONES PROFUNDAS MAS IMPORTANTES
+======================================================================
+
+ESCENARIO A. "Importe mi musica, sonaba, cerre la app y luego ya no dio play"
+Probabilidad de explicar el sintoma: MUY ALTA
+
+Secuencia:
+1. Usuario importa audio con GetMultipleContents.
+2. La app guarda el content://.
+3. No copia el archivo a almacenamiento propio.
+4. El permiso persistente puede no quedar retenido.
+5. Se mata el proceso.
+6. La app vuelve a cargar el URI.
+7. El provider rechaza lectura.
+8. ExoPlayer falla.
+9. UI no muestra motivo.
+
+
+ESCENARIO B. "Toque una cancion, luego next/previous se comporta raro"
+Probabilidad: MUY ALTA
+
+Secuencia:
+1. La playlist interna queda con indice inicial 0.
+2. Usuario toca una pista distinta desde la libreria.
+3. El player cambia de media item, pero el indice interno no.
+4. next(), previous() y fin de pista operan con indice obsoleto.
+5. Resultado: saltos inesperados.
+
+
+ESCENARIO C. "La musica arranca o se pausa cuando no deberia al caminar/correr"
+Probabilidad: ALTA
+
+Secuencia:
+1. Hardware step detector reporta pasos reales.
+2. El acelerometro tambien cuenta picos como pasos.
+3. Cadencia se infla.
+4. MotionState sube a WALKING/RUNNING antes de tiempo.
+5. SyncEngine empieza a controlar audio en base a ruido.
+
+
+ESCENARIO D. "Active running mode y aun asi no funciona"
+Probabilidad: ALTA
+
+Secuencia:
+1. Usuario activa switch.
+2. Aun faltan permisos.
+3. La app igual marca el modo como enabled.
+4. La UI de permisos no refleja la verdad completa.
+5. Home no explica que faltan permisos reales.
+6. Usuario piensa que el bug es del player, cuando parte del problema es permisos.
+
+
+ESCENARIO E. "Cerre la app desde recientes y todo murio"
+Probabilidad: ALTA
+
+Secuencia:
+1. Usuario va corriendo con la app.
+2. Remueve la tarea desde recientes.
+3. onTaskRemoved pausa y stopSelf.
+4. onDestroy mata sensores y player.
+5. Se pierde continuidad.
+
+
+ESCENARIO F. "Instalo la app y no hay nada que reproducir"
+Probabilidad: ALTA EN INSTALACION FRESCA
+
+Secuencia:
+1. La app carga catalogo desde repository activo.
+2. catalog = emptyList().
+3. No hay currentTrack.
+4. El boton play queda deshabilitado funcionalmente.
+5. El valor principal del producto no aparece listo para usar.
+
+======================================================================
+8. CALIDAD DEL PROCESO Y PREVENCION DE REGRESIONES
+======================================================================
+
+Estado actual:
+- No encontre archivos de test.
+- CI solo hace assembleDebug.
+- No hay smoke tests del flujo principal:
+  - importar musica;
+  - reproducir;
+  - cerrar/reabrir;
+  - correr/caminar/parar;
+  - remover de recientes;
+  - recuperar estado al relanzar.
+
+Consecuencia:
+- Es muy facil que el equipo arregle una cosa y rompa otra sin enterarse.
+
+======================================================================
+9. ORDEN RECOMENDADO DE CORRECCION
+======================================================================
+
+FASE 1. Estabilizar reproduccion basica
+1. Cambiar importacion a un esquema persistente real:
+   - copiar el archivo a filesDir/cacheDir controlado por la app, o
+   - usar OpenDocument/OpenMultipleDocuments y permisos persistentes reales.
+2. Agregar onPlayerError + estado de error en PlayerState + UI visible.
+3. Hacer que playTrack(track) actualice currentTrackIndex y la cola activa.
+
+FASE 2. Estabilizar running mode
+4. Corregir el fallback del acelerometro para que NO cuente pasos si el hardware detector ya funciona.
+5. Rehacer el flujo de permisos:
+   - no activar running mode hasta confirmar grant real;
+   - mostrar estado real de motion/location;
+   - usar permissionsGranted en MotionIndicator o quitarlo.
+6. Revisar lifecycle del servicio para no matar audio/sensores ciegamente en onTaskRemoved.
+
+FASE 3. Estabilizar experiencia completa
+7. Resolver catalogo real de Chill Music o quitar esa pestaña hasta implementarla de verdad.
+8. Evitar que loadTracks() resetee la sesion de playback.
+9. Reducir reevaluaciones redundantes de SyncEngine.
+10. Corregir encoding de traducciones.
+
+FASE 4. Blindaje de calidad
+11. Agregar gradlew al repo.
+12. Agregar tests minimos:
+   - seleccion de pista actualiza indice;
+   - importacion sobrevive reinicio de proceso;
+   - running mode no activa sin permisos;
+   - remover recientes no rompe el caso de uso esperado;
+   - detector no duplica pasos.
+13. Extender CI con lint + unit tests.
+
+======================================================================
+10. DIAGNOSTICO FINAL
+======================================================================
+
+Si hoy tuviera que apostar por las causas mas probables de tus errores reales en usuarios, apostaria asi:
+
+1. Muy probable:
+- URIs de musica importada no persistentes + falta de onPlayerError.
+
+2. Muy probable:
+- Desincronizacion de currentTrackIndex con la cancion seleccionada.
+
+3. Muy probable:
+- Doble conteo de pasos y estados de movimiento falsos.
+
+4. Alta probabilidad:
+- Servicio destruido al remover la app de recientes.
+
+5. Alta probabilidad:
+- Permisos y UI engañosos que dejan funciones "encendidas" sin soporte real.
+
+6. Alta probabilidad:
+- Ausencia de catalogo real en una app cuyo valor principal depende de tener musica disponible.
+
+Juicio final:
+- El proyecto no esta listo para considerarse estable en produccion.
+- El problema no parece ser un unico bug aislado; parece una combinacion de errores de persistencia, lifecycle, cola de reproduccion, sensores y UX de permisos.
+- Antes de agregar features nuevas, conviene una ronda corta y dura de estabilizacion.
+
+======================================================================
+11. NOTA DE HONESTIDAD TECNICA
+======================================================================
+
+No pude reproducir el crash exacto de "la app ya no vuelve a abrir" porque en este entorno no existe una ruta real de build + emulador/dispositivo.
+Sin embargo:
+- no encontre una sola linea que garantice por si sola un crash de arranque siempre reproducible;
+- si encontre varias rutas que explican perfectamente "la musica deja de funcionar", "la app parece rota al reabrir" y "el modo correr es inconsistente".
+
+En otras palabras:
+- el sintoma de reapertura rota necesita prueba en dispositivo;
+- los defectos de reproduccion y sincronizacion SI estan claramente presentes en el codigo actual.
+
+FIN DE AUDITORIA

@@ -27,7 +27,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.chillmusic.ui.theme.NavBackground
 import com.example.chillmusic.ui.theme.NetflixRed
-
 import com.example.chillmusic.ui.utils.Translation
 
 @Composable
@@ -52,8 +51,8 @@ fun BottomNavigationBar(
         )
         NavItem(
             icon = Icons.Filled.LibraryMusic,
-            label = Translation.getString("library", language),
-            isSelected = currentTab == "library",
+            label = Translation.getString("music", language),
+            isSelected = currentTab == "music",
             onClick = { onTabSelected(1) }
         )
         NavItem(
@@ -99,7 +98,7 @@ private fun NavItem(
                     .background(NetflixRed)
             )
         } else {
-            Spacer(modifier = Modifier.height(6.dp)) // Maintain height
+            Spacer(modifier = Modifier.height(6.dp))
         }
     }
 }

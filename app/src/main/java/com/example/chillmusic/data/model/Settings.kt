@@ -25,6 +25,5 @@ data class MotionSettings(
 
 data class AppSettings(
     val motion: MotionSettings = MotionSettings(),
-    val musicSource: String = "each", // "catalog"|"user"|"all"
     val language: String = "en"
 )

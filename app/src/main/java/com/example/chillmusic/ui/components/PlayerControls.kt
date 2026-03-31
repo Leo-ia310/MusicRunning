@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -38,6 +39,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.example.chillmusic.data.model.PlayerErrorType
 import com.example.chillmusic.data.model.PlayerState
 import com.example.chillmusic.ui.theme.ButtonGray
 import com.example.chillmusic.ui.theme.NetflixRed
@@ -47,6 +49,7 @@ import java.util.Locale
 @Composable
 fun PlayerControls(
     playerState: PlayerState,
+    hasTracks: Boolean,
     onPlayPause: () -> Unit,
     onNext: () -> Unit,
     onPrev: () -> Unit,
@@ -55,13 +58,14 @@ fun PlayerControls(
     onRepeatToggle: () -> Unit,
     language: String
 ) {
+    val errorText = playerErrorText(playerState, language)
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(16.dp)
-            .background(Color.Transparent) 
+            .background(Color.Transparent)
     ) {
-        // Track Info
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth()
@@ -95,9 +99,17 @@ fun PlayerControls(
             }
         }
 
+        if (errorText != null) {
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = errorText,
+                color = NetflixRed,
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+
         Spacer(modifier = Modifier.height(24.dp))
 
-        // Progress
         Column {
             Slider(
                 value = playerState.progress.toFloat(),
@@ -128,33 +140,31 @@ fun PlayerControls(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Controls
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = { /* Shuffle */ }) {
+            IconButton(onClick = { }) {
                 Icon(Icons.Filled.Shuffle, null, tint = Color.Gray)
             }
             IconButton(onClick = onPrev) {
                 Icon(Icons.Filled.SkipPrevious, null, tint = Color.White, modifier = Modifier.size(32.dp))
             }
-            
-            // Play Button
-            val hasTrack = playerState.currentTrack != null
+
+            val canPlay = hasTracks && playerState.currentTrack != null
             Box(
                 modifier = Modifier
                     .size(64.dp)
                     .clip(CircleShape)
-                    .background(if (hasTrack) NetflixRed else ButtonGray)
-                    .then(if (hasTrack) Modifier.clickable(onClick = onPlayPause) else Modifier),
+                    .background(if (canPlay) NetflixRed else ButtonGray)
+                    .then(if (canPlay) Modifier.clickable(onClick = onPlayPause) else Modifier),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = if (playerState.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                     contentDescription = "Play/Pause",
-                    tint = if (hasTrack) Color.White else Color.Gray,
+                    tint = if (canPlay) Color.White else Color.Gray,
                     modifier = Modifier.size(32.dp)
                 )
             }
@@ -164,20 +174,21 @@ fun PlayerControls(
             }
 
             val isRepeatActive = playerState.repeatMode != com.example.chillmusic.data.model.RepeatMode.NONE
-            val repeatIconTint = if (isRepeatActive) NetflixRed else Color.Gray
             IconButton(onClick = onRepeatToggle) {
                 Icon(
-                    imageVector = if (playerState.repeatMode == com.example.chillmusic.data.model.RepeatMode.ONE) 
-                        Icons.Filled.RepeatOne else Icons.Filled.Repeat, 
-                    contentDescription = "Repeat", 
-                    tint = repeatIconTint
+                    imageVector = if (playerState.repeatMode == com.example.chillmusic.data.model.RepeatMode.ONE) {
+                        Icons.Filled.RepeatOne
+                    } else {
+                        Icons.Filled.Repeat
+                    },
+                    contentDescription = "Repeat",
+                    tint = if (isRepeatActive) NetflixRed else Color.Gray
                 )
             }
         }
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // Volume
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
                 imageVector = if (playerState.volume == 0f) Icons.Filled.VolumeOff else Icons.Filled.VolumeUp,
@@ -204,6 +215,22 @@ fun PlayerControls(
                 modifier = Modifier.width(32.dp)
             )
         }
+    }
+}
+
+private fun playerErrorText(playerState: PlayerState, language: String): String? {
+    val baseMessage = when (playerState.errorType) {
+        PlayerErrorType.NO_TRACKS -> Translation.getString("player_error_no_tracks", language)
+        PlayerErrorType.SOURCE_UNAVAILABLE -> Translation.getString("player_error_source_unavailable", language)
+        PlayerErrorType.UNSUPPORTED_FORMAT -> Translation.getString("player_error_unsupported_format", language)
+        PlayerErrorType.PLAYBACK_FAILED -> Translation.getString("player_error_playback_failed", language)
+        null -> null
+    } ?: return null
+
+    return if (playerState.errorType == PlayerErrorType.PLAYBACK_FAILED && !playerState.errorDetail.isNullOrBlank()) {
+        "$baseMessage (${playerState.errorDetail})"
+    } else {
+        baseMessage
     }
 }
 

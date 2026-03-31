@@ -1,7 +1,6 @@
 package com.example.chillmusic.logic.sync
 
 import com.example.chillmusic.data.model.MotionState
-import com.example.chillmusic.data.model.PlayerState
 import com.example.chillmusic.data.model.StopBehavior
 import com.example.chillmusic.data.repository.SettingsRepository
 import com.example.chillmusic.logic.audio.AudioPlayerManager
@@ -10,7 +9,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 
 class SyncEngine(
     private val scope: CoroutineScope,
@@ -21,27 +23,46 @@ class SyncEngine(
     private var previousMotionState = MotionState.STOPPED
     private var storedVolume = 0.8f
     private var debounceJob: Job? = null
+    private var volumeLoweredByStopBehavior = false
+
+    private data class SyncPlayerSnapshot(
+        val trackId: String?,
+        val isPlaying: Boolean,
+        val volume: Float,
+        val speed: Float
+    )
 
     init {
         scope.launch {
+            val syncPlayerState = audioManager.playerState
+                .map { state ->
+                    SyncPlayerSnapshot(
+                        trackId = state.currentTrack?.id,
+                        isPlaying = state.isPlaying,
+                        volume = state.volume,
+                        speed = state.speed
+                    )
+                }
+                .distinctUntilChanged()
+
             combine(
                 motionDetector.motionState,
                 motionDetector.stepCadence,
                 settingsRepo.settings,
-                audioManager.playerState
+                syncPlayerState
             ) { motionState, cadence, settings, playerState ->
                 Triple(motionState, cadence, Pair(settings, playerState))
-            }.collect { (motionState, cadence, pairs) ->
-                val settings = pairs.first
-                val playerState = pairs.second
+            }.collect { (motionState, cadence, pair) ->
+                val settings = pair.first
+                val playerState = pair.second
 
-                val motionEnabled = settings.motion.enabled
-
-                // If motion sync is disabled, cancel any pending debounce, optionally
-                // restore speed, and do nothing else to avoid interfering with manual playback.
-                if (!motionEnabled) {
+                if (!settings.motion.enabled) {
                     debounceJob?.cancel()
-                    if (playerState.isPlaying && playerState.speed != 1.0f) {
+                    if (volumeLoweredByStopBehavior) {
+                        audioManager.setVolume(storedVolume)
+                        volumeLoweredByStopBehavior = false
+                    }
+                    if (playerState.isPlaying && abs(playerState.speed - 1.0f) > 0.01f) {
                         audioManager.setPlaybackSpeed(1.0f)
                     }
                     previousMotionState = motionState
@@ -49,11 +70,12 @@ class SyncEngine(
                 }
 
                 if (settings.motion.autoPlayEnabled) {
-                    handleSmartPlayback(motionState, playerState, settings.motion.stopBehavior)
+                    handleSmartPlayback(motionState, settings.motion.stopBehavior)
                 }
+
                 if (settings.motion.syncSpeedEnabled) {
                     handleSpeedSync(motionState, cadence, settings.motion.syncIntensity)
-                } else if (playerState.speed != 1.0f) {
+                } else if (abs(playerState.speed - 1.0f) > 0.01f) {
                     audioManager.setPlaybackSpeed(1.0f)
                 }
 
@@ -62,40 +84,41 @@ class SyncEngine(
         }
     }
 
-    private fun handleSmartPlayback(current: MotionState, playerState: PlayerState, stopBehavior: StopBehavior) {
+    private fun handleSmartPlayback(current: MotionState, stopBehavior: StopBehavior) {
         if (current == previousMotionState) return
 
         val isMoving = current == MotionState.WALKING || current == MotionState.RUNNING
         val wasMoving = previousMotionState == MotionState.WALKING || previousMotionState == MotionState.RUNNING
 
         if (isMoving && !wasMoving) {
-            // Started moving: cancel pause debounce and play immediately!
             debounceJob?.cancel()
             debounceJob = scope.launch {
-                if (storedVolume > 0) {
+                if (volumeLoweredByStopBehavior) {
                     audioManager.setVolume(storedVolume)
+                    volumeLoweredByStopBehavior = false
                 }
-                if (!playerState.isPlaying && playerState.currentTrack != null) {
+                if (!audioManager.playerState.value.isPlaying) {
                     audioManager.play()
                 }
             }
         } else if (!isMoving && wasMoving) {
-            // Stopped moving: Debounce for 3 seconds before pausing to prevent stuttering
             debounceJob?.cancel()
             debounceJob = scope.launch {
-                delay(3000) // 3 seconds grace period
-                
-                // Double check if toggle was disabled during delay
+                delay(3000)
                 if (!settingsRepo.settings.value.motion.enabled) return@launch
-                
+
+                val currentPlayerState = audioManager.playerState.value
                 when (stopBehavior) {
-                    StopBehavior.PAUSE -> {
-                        audioManager.pause()
-                    }
+                    StopBehavior.PAUSE -> audioManager.pause()
+
                     StopBehavior.LOWER_VOLUME -> {
-                        storedVolume = playerState.volume
-                        audioManager.setVolume(storedVolume * 0.3f)
+                        if (!volumeLoweredByStopBehavior) {
+                            storedVolume = currentPlayerState.volume
+                            audioManager.setVolume((storedVolume * 0.3f).coerceIn(0f, 1f))
+                            volumeLoweredByStopBehavior = true
+                        }
                     }
+
                     StopBehavior.NEXT_TRACK -> {
                         audioManager.next()
                         audioManager.pause()
@@ -106,17 +129,21 @@ class SyncEngine(
     }
 
     private fun handleSpeedSync(motionState: MotionState, cadence: Int, intensity: Float) {
+        val currentSpeed = audioManager.playerState.value.speed
+
         if (motionState == MotionState.RUNNING || motionState == MotionState.WALKING) {
             val targetSpeed = if (cadence > 0) {
                 val clampedCadence = cadence.coerceIn(80, 200).toFloat()
-                // diff from 120 baseline. 160 cadence at full intensity = 1.2x speed
                 val diff = clampedCadence - 120f
                 1.0f + (diff * 0.005f * intensity)
             } else {
                 1.0f
             }
-            audioManager.setPlaybackSpeed(targetSpeed)
-        } else {
+
+            if (abs(currentSpeed - targetSpeed) > 0.01f) {
+                audioManager.setPlaybackSpeed(targetSpeed)
+            }
+        } else if (abs(currentSpeed - 1.0f) > 0.01f) {
             audioManager.setPlaybackSpeed(1.0f)
         }
     }

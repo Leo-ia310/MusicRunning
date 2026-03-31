@@ -1,22 +1,23 @@
 package com.example.chillmusic
 
 import android.app.Application
+import android.content.Intent
 import com.example.chillmusic.data.repository.FitnessRepository
 import com.example.chillmusic.data.repository.MusicRepository
 import com.example.chillmusic.data.repository.SettingsRepository
 import com.example.chillmusic.logic.audio.AudioPlayerManager
 import com.example.chillmusic.logic.sensor.MotionDetector
 import com.example.chillmusic.logic.sync.SyncEngine
+import com.example.chillmusic.service.MusicService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel 
+import kotlinx.coroutines.cancel
 
 class ChillMusicApplication : Application() {
 
-    // Manual Dependency Injection container
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-    
+
     lateinit var musicRepository: MusicRepository
     lateinit var settingsRepository: SettingsRepository
     lateinit var fitnessRepository: FitnessRepository
@@ -26,18 +27,21 @@ class ChillMusicApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        
+
         musicRepository = MusicRepository(this)
         settingsRepository = SettingsRepository(this)
         fitnessRepository = FitnessRepository(this)
-        
-        // These managers need scope for coroutines
         audioPlayerManager = AudioPlayerManager(this, applicationScope)
-        motionDetector = MotionDetector(this, applicationScope, fitnessRepository)
+        motionDetector = MotionDetector(this, fitnessRepository)
         syncEngine = SyncEngine(applicationScope, audioPlayerManager, motionDetector, settingsRepository)
     }
 
+    fun ensureMusicServiceStarted() {
+        startService(Intent(this, MusicService::class.java))
+    }
+
     override fun onTerminate() {
+        audioPlayerManager.release()
         super.onTerminate()
         applicationScope.cancel()
     }

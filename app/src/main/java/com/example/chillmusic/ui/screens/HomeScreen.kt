@@ -82,6 +82,7 @@ fun HomeScreen(viewModel: MainViewModel) {
         // Player Section
         PlayerControls(
             playerState = uiState.player,
+            hasTracks = uiState.userTracks.isNotEmpty(),
             onPlayPause = viewModel::togglePlayPause,
             onNext = viewModel::nextTrack,
             onPrev = viewModel::prevTrack,

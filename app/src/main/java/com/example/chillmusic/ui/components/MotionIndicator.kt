@@ -9,14 +9,15 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.DirectionsRun
 import androidx.compose.material.icons.filled.DirectionsWalk
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.StopCircle
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -24,13 +25,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.example.chillmusic.data.model.MotionState
 import com.example.chillmusic.ui.theme.ButtonGray
-import com.example.chillmusic.ui.theme.NetflixRed
 import com.example.chillmusic.ui.theme.StatusRunning
 import com.example.chillmusic.ui.theme.StatusStopped
 import com.example.chillmusic.ui.theme.StatusWalking
@@ -43,15 +41,39 @@ fun MotionIndicator(
     permissionsGranted: Boolean,
     language: String
 ) {
-    if (!enabled) {
-        DisabledMotionIndicator(language)
-        return
+    when {
+        !enabled -> DisabledMotionIndicator(language)
+        !permissionsGranted -> PermissionMissingMotionIndicator(language)
+        else -> ActiveMotionIndicator(motionState, language)
     }
+}
 
+@Composable
+private fun ActiveMotionIndicator(
+    motionState: MotionState,
+    language: String
+) {
     val (color, icon, text, bars) = when (motionState) {
-        MotionState.STOPPED -> Quad(StatusStopped, Icons.Filled.StopCircle, Translation.getString("stopped", language), listOf(Color.Gray, Color.Gray, Color.Gray))
-        MotionState.WALKING -> Quad(StatusWalking, Icons.Filled.DirectionsWalk, Translation.getString("walking", language), listOf(StatusWalking, StatusWalking, Color.Gray))
-        MotionState.RUNNING -> Quad(StatusRunning, Icons.Filled.DirectionsRun, Translation.getString("running", language), listOf(StatusWalking, StatusWalking, StatusRunning))
+        MotionState.STOPPED -> Quad(
+            StatusStopped,
+            Icons.Filled.StopCircle,
+            Translation.getString("stopped", language),
+            listOf(Color.Gray, Color.Gray, Color.Gray)
+        )
+
+        MotionState.WALKING -> Quad(
+            StatusWalking,
+            Icons.Filled.DirectionsWalk,
+            Translation.getString("walking", language),
+            listOf(StatusWalking, StatusWalking, Color.Gray)
+        )
+
+        MotionState.RUNNING -> Quad(
+            StatusRunning,
+            Icons.Filled.DirectionsRun,
+            Translation.getString("running", language),
+            listOf(StatusWalking, StatusWalking, StatusRunning)
+        )
     }
 
     Box(
@@ -65,7 +87,7 @@ fun MotionIndicator(
         if (motionState != MotionState.STOPPED) {
             PulseAnimation(modifier = Modifier.matchParentSize(), color = color)
         }
-        
+
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -86,7 +108,7 @@ fun MotionIndicator(
                         color = color
                     )
                     Text(
-                        text = when(motionState) {
+                        text = when (motionState) {
                             MotionState.STOPPED -> Translation.getString("start_moving_to_play", language)
                             MotionState.WALKING -> Translation.getString("walking_pace_detected", language)
                             MotionState.RUNNING -> Translation.getString("running_pace_detected", language)
@@ -96,8 +118,7 @@ fun MotionIndicator(
                     )
                 }
             }
-            
-            // Bars
+
             Row(
                 verticalAlignment = Alignment.Bottom,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -111,7 +132,23 @@ fun MotionIndicator(
 }
 
 @Composable
-fun DisabledMotionIndicator(language: String) {
+private fun DisabledMotionIndicator(language: String) {
+    InfoIndicator(
+        title = Translation.getString("motion_detection_off", language),
+        message = Translation.getString("enable_in_settings", language)
+    )
+}
+
+@Composable
+private fun PermissionMissingMotionIndicator(language: String) {
+    InfoIndicator(
+        title = Translation.getString("motion_permissions_missing", language),
+        message = Translation.getString("grant_motion_permissions", language)
+    )
+}
+
+@Composable
+private fun InfoIndicator(title: String, message: String) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -123,8 +160,8 @@ fun DisabledMotionIndicator(language: String) {
         Icon(Icons.Filled.Info, contentDescription = null, tint = Color.Gray)
         Spacer(modifier = Modifier.width(12.dp))
         Column {
-            Text(Translation.getString("motion_detection_off", language), color = Color.Gray, style = MaterialTheme.typography.titleMedium)
-            Text(Translation.getString("enable_in_settings", language), color = Color.DarkGray, style = MaterialTheme.typography.bodySmall)
+            Text(title, color = Color.Gray, style = MaterialTheme.typography.titleMedium)
+            Text(message, color = Color.DarkGray, style = MaterialTheme.typography.bodySmall)
         }
     }
 }
