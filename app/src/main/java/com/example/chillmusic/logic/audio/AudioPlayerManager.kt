@@ -109,7 +109,7 @@ class AudioPlayerManager(private val context: Context, private val scope: Corout
             return
         }
 
-        val currentTrack = snapshot.currentTrack
+        val currentTrack = snapshot.currentTrack ?: return
         val trackChanged = previousTrackId != currentTrack.id
 
         _playerState.value = _playerState.value.copy(
